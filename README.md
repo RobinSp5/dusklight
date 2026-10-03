@@ -8,9 +8,9 @@
 
 <br>
 
-<a href="media/dusklight-trailer.mp4"><img src="media/dusklight-preview.gif" alt="Dusklight trailer: the world flips from Ember to Frost, the player switches worlds mid-air across glowing platforms" width="720"></a>
+<a href="https://robinsp5.github.io/dusklight/trailer.mp4"><img src="media/dusklight-preview.gif" alt="Dusklight trailer: the world flips from Ember to Frost, the player switches worlds mid-air across glowing platforms" width="720"></a>
 
-[🎬 Watch the full trailer with sound (22s)](media/dusklight-trailer.mp4)
+[🎬 Watch the full trailer with sound (22s)](https://robinsp5.github.io/dusklight/trailer.mp4)
 
 </div>
 
