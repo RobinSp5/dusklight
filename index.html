@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0a10">
+  <meta name="color-scheme" content="dark">
+  <title>Dusklight</title>
+  <meta name="description" content="A 2D platformer between two worlds. Switch between Ember and Frost to make your path appear.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpath d=%22M16 2 28 16 16 30 4 16z%22 fill=%22%23ff8a4c%22/%3E%3Cpath d=%22M16 2 28 16 16 30z%22 fill=%22%235ee0ff%22/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+  <link rel="stylesheet" href="styles.css?v=__V__">
+</head>
+<body>
+  <canvas id="game" aria-label="Dusklight game world"></canvas>
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="hud" id="hud" hidden>
+    <div class="hud-group">
+      <span class="hud-level" id="hudLevel"></span>
+      <span class="hud-stat" aria-label="Shards"><i class="shard-glyph" aria-hidden="true"></i><span id="hudShards">0/0</span></span>
+    </div>
+    <div class="phase-pill" id="phasePill" data-phase="0" role="status" aria-live="polite">
+      <span class="phase-thumb" aria-hidden="true"></span>
+      <span class="phase-opt" data-p="0">Ember</span>
+      <span class="phase-opt" data-p="1">Frost</span>
+    </div>
+    <div class="hud-group hud-right">
+      <span class="hud-stat" id="hudTimeStat" aria-label="Time"><i class="ph-bold ph-timer" aria-hidden="true"></i><span id="hudTime">0:00.0</span></span>
+      <span class="hud-stat" aria-label="Deaths"><i class="ph-bold ph-skull" aria-hidden="true"></i><span id="hudDeaths">0</span></span>
+      <button class="icon-btn" id="btnMuteHud" type="button" aria-label="Mute sound"><i class="ph-bold ph-speaker-high" aria-hidden="true"></i></button>
+      <button class="icon-btn" id="btnPause" type="button" aria-label="Pause"><i class="ph-bold ph-pause" aria-hidden="true"></i></button>
+    </div>
+  </header>
+
+  <main>
+    <section class="screen screen-title" id="screenTitle" aria-labelledby="logo">
+      <div class="title-block">
+        <h1 class="logo" id="logo" translate="no">Dusklight</h1>
+        <p class="lead">Two worlds, one path. Switch between Ember and Frost to make your platforms appear.</p>
+        <div class="actions">
+          <button class="btn btn-primary" id="btnPlay" type="button"><i class="ph-bold ph-play" aria-hidden="true"></i><span id="btnPlayLabel">Play</span></button>
+          <button class="btn" id="btnLevels" type="button">Select level</button>
+          <button class="icon-btn icon-btn-lg" id="btnSettings" type="button" aria-label="Settings"><i class="ph-bold ph-gear-six" aria-hidden="true"></i></button>
+          <button class="icon-btn icon-btn-lg" id="btnMute" type="button" aria-label="Mute sound"><i class="ph-bold ph-speaker-high" aria-hidden="true"></i></button>
+        </div>
+      </div>
+      <aside class="controls" aria-label="Controls">
+        <dl id="titleControls"></dl>
+        <p class="controls-note">All controls are listed in Settings.</p>
+      </aside>
+    </section>
+
+    <section class="screen screen-select" id="screenSelect" aria-labelledby="selectTitle" hidden>
+      <div class="select-wrap">
+        <div class="select-head">
+          <button class="icon-btn icon-btn-lg" id="btnBack" type="button" aria-label="Back to title"><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
+          <h2 id="selectTitle">Select level</h2>
+        </div>
+        <div class="level-grid" id="levelGrid"></div>
+      </div>
+    </section>
+
+    <section class="screen screen-select screen-settings" id="screenSettings" aria-labelledby="settingsTitle" hidden>
+      <div class="select-wrap">
+        <div class="select-head">
+          <button class="icon-btn icon-btn-lg" id="btnSettingsBack" type="button" aria-label="Close settings" data-autofocus><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
+          <h2 id="settingsTitle">Settings</h2>
+        </div>
+        <div class="settings-grid">
+          <div class="settings-col">
+            <section class="set-group" aria-labelledby="hSound">
+              <h3 id="hSound">Sound</h3>
+              <div class="set-row">
+                <label for="setMuted">Mute all sound</label>
+                <input class="switch" type="checkbox" role="switch" id="setMuted" name="muted">
+              </div>
+              <div class="set-row set-range">
+                <label for="setMaster">Master volume</label>
+                <output id="outMaster" for="setMaster">80%</output>
+                <input type="range" id="setMaster" name="master" min="0" max="100" step="5">
+              </div>
+              <div class="set-row set-range">
+                <label for="setMusic">Music</label>
+                <output id="outMusic" for="setMusic">60%</output>
+                <input type="range" id="setMusic" name="music" min="0" max="100" step="5">
+              </div>
+              <div class="set-row set-range">
+                <label for="setSfx">Sound effects</label>
+                <output id="outSfx" for="setSfx">80%</output>
+                <input type="range" id="setSfx" name="sfx" min="0" max="100" step="5">
+              </div>
+            </section>
+
+            <section class="set-group" aria-labelledby="hDisplay">
+              <h3 id="hDisplay">Gameplay and display</h3>
+              <div class="set-row">
+                <label for="setShake">Screen shake</label>
+                <input class="switch" type="checkbox" role="switch" id="setShake" name="shake">
+              </div>
+              <div class="set-row">
+                <label for="setReduced">Reduced effects<span class="set-hint">Fewer particles, calmer animations</span></label>
+                <input class="switch" type="checkbox" role="switch" id="setReduced" name="reducedFx">
+              </div>
+              <div class="set-row">
+                <label for="setTimer">Show timer</label>
+                <input class="switch" type="checkbox" role="switch" id="setTimer" name="showTimer">
+              </div>
+            </section>
+
+            <section class="set-group" aria-labelledby="hProgress">
+              <h3 id="hProgress">Progress</h3>
+              <p class="set-note">Best times and unlocked levels are saved in this browser.</p>
+              <div class="actions set-actions">
+                <button class="btn" id="btnReplayTutorial" type="button">Replay tutorial</button>
+                <button class="btn btn-danger" id="btnReset" type="button">Reset progress</button>
+              </div>
+              <div class="confirm" id="resetConfirm" role="alertdialog" aria-labelledby="resetText" hidden>
+                <p id="resetText">Delete all best times and lock levels 2 to 8 again? This cannot be undone.</p>
+                <div class="actions">
+                  <button class="btn btn-danger" id="btnResetYes" type="button">Delete progress</button>
+                  <button class="btn" id="btnResetNo" type="button">Cancel</button>
+                </div>
+              </div>
+              <p class="set-note set-done" id="resetDone" role="status" hidden>Progress reset.</p>
+            </section>
+          </div>
+
+          <section class="set-group set-keys" aria-labelledby="hControls">
+            <h3 id="hControls">Controls</h3>
+            <table class="keys">
+              <thead><tr><th scope="col">Action</th><th scope="col">Keyboard</th><th scope="col">Gamepad</th></tr></thead>
+              <tbody id="keysBody"></tbody>
+            </table>
+            <p class="set-note">On touch screens, on-screen buttons appear while you play.</p>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen screen-onboard" id="screenOnboard" aria-labelledby="obTitle" aria-describedby="obBody" hidden>
+      <div class="ob-card">
+        <div class="ob-progress" aria-hidden="true"><span class="ob-bar" id="obBar"></span></div>
+        <div class="ob-stage" id="obStage">
+          <canvas id="obCanvas" aria-hidden="true"></canvas>
+          <div class="ob-keys" id="obKeys" aria-hidden="true"></div>
+        </div>
+        <div class="ob-copy" id="obCopy" aria-live="polite">
+          <p class="ob-step" id="obStep">Step 1 of 4</p>
+          <h2 id="obTitle">Run and jump</h2>
+          <p class="ob-body" id="obBody"></p>
+          <p class="ob-touch" id="obTouch" hidden>On touch screens, use the buttons at the bottom of the screen.</p>
+        </div>
+        <div class="ob-nav">
+          <button class="btn btn-ghost" id="obSkip" type="button">Skip tutorial</button>
+          <div class="ob-dots" id="obDots"></div>
+          <div class="ob-buttons">
+            <button class="icon-btn icon-btn-lg" id="obPrev" type="button" aria-label="Previous step"><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
+            <button class="btn btn-primary" id="obNext" type="button" data-autofocus>Next</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen screen-modal" id="screenPause" aria-labelledby="pauseTitle" hidden>
+      <div class="panel">
+        <h2 id="pauseTitle">Paused</h2>
+        <div class="actions actions-col">
+          <button class="btn btn-primary" id="btnResume" type="button" data-autofocus>Resume</button>
+          <button class="btn" id="btnRestart" type="button">Restart level</button>
+          <button class="btn" id="btnPauseSettings" type="button">Settings</button>
+          <button class="btn" id="btnQuit" type="button">Quit to title</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen screen-modal" id="screenComplete" aria-labelledby="completeTitle" hidden>
+      <div class="panel panel-wide">
+        <p class="badge" id="bestBadge" hidden>New best time</p>
+        <h2 id="completeTitle">Level cleared</h2>
+        <div class="stats">
+          <div><span class="stat-label">Time</span><span class="stat-val" id="stTime">0:00.0</span></div>
+          <div><span class="stat-label">Shards</span><span class="stat-val" id="stShards">0/0</span></div>
+          <div><span class="stat-label">Deaths</span><span class="stat-val" id="stDeaths">0</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="btnNext" type="button" data-autofocus>Next level</button>
+          <button class="btn" id="btnAgain" type="button">Play again</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen screen-modal" id="screenFinale" aria-labelledby="finaleTitle" hidden>
+      <div class="panel panel-wide">
+        <h2 id="finaleTitle">Both worlds mastered</h2>
+        <p class="panel-lead">Your best times across all levels, added up.</p>
+        <div class="stats">
+          <div><span class="stat-label">Total time</span><span class="stat-val" id="fnTime">0:00.0</span></div>
+          <div><span class="stat-label">Shards</span><span class="stat-val" id="fnShards">0/0</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="btnFinaleMenu" type="button" data-autofocus>Back to title</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="touch" id="touch" hidden>
+    <div class="touch-side">
+      <button type="button" class="t-btn" data-act="left" aria-label="Move left"><i class="ph-bold ph-caret-left" aria-hidden="true"></i></button>
+      <button type="button" class="t-btn" data-act="right" aria-label="Move right"><i class="ph-bold ph-caret-right" aria-hidden="true"></i></button>
+    </div>
+    <div class="touch-side">
+      <button type="button" class="t-btn t-swap" data-act="swap" aria-label="Switch world"><i class="ph-bold ph-swap" aria-hidden="true"></i></button>
+      <button type="button" class="t-btn" data-act="dash" aria-label="Dash"><i class="ph-bold ph-lightning" aria-hidden="true"></i></button>
+      <button type="button" class="t-btn t-jump" data-act="jump" aria-label="Jump"><i class="ph-bold ph-arrow-fat-up" aria-hidden="true"></i></button>
+    </div>
+  </div>
+
+  <!-- Cache busting: the deploy workflow replaces __V__ with the commit hash, so a browser never
+       mixes files from two releases. Every module in src/ must be listed (checked by tests/importmap.mjs). -->
+  <script type="importmap">
+  {
+    "imports": {
+      "./src/world.js": "./src/world.js?v=__V__",
+      "./src/levels.js": "./src/levels.js?v=__V__",
+      "./src/render.js": "./src/render.js?v=__V__",
+      "./src/audio.js": "./src/audio.js?v=__V__",
+      "./src/input.js": "./src/input.js?v=__V__",
+      "./src/settings.js": "./src/settings.js?v=__V__",
+      "./src/demos.js": "./src/demos.js?v=__V__"
+    }
+  }
+  </script>
+  <script type="module" src="src/main.js?v=__V__"></script>
+</body>
+</html>

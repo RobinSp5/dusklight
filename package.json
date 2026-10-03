@@ -1,0 +1,10 @@
+{
+  "name": "dusklight",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "solve": "node tests/solve.mjs",
+    "test": "node tests/importmap.mjs && node tests/swap.mjs && node tests/demos.mjs && node tests/solve.mjs"
+  }
+}
