@@ -1,4 +1,18 @@
+<div align="center">
+
 # Dusklight
+
+### [▶ Play in your browser](https://robinsp5.github.io/dusklight/)
+
+**[robinsp5.github.io/dusklight](https://robinsp5.github.io/dusklight/)** · free, no install, works with keyboard, gamepad and touch
+
+<br>
+
+<a href="media/dusklight-trailer.mp4"><img src="media/dusklight-preview.gif" alt="Dusklight trailer: the world flips from Ember to Frost, the player switches worlds mid-air across glowing platforms" width="720"></a>
+
+[🎬 Watch the full trailer with sound (22s)](media/dusklight-trailer.mp4)
+
+</div>
 
 A 2D platformer between two worlds. Ember platforms are only solid in Ember, Frost platforms only in Frost. Switch worlds (even mid-jump) to make your path appear.
 
@@ -58,3 +72,9 @@ node tests/profile.mjs  # difficulty profile: deadly columns, hazards, landing w
 ## Deploy
 
 Pushing to `main` deploys to GitHub Pages via `.github/workflows/pages.yml`. The workflow copies only the game files (`index.html`, `styles.css`, `src/`) and replaces `__V__` with the commit hash, so every release gets fresh, consistent URLs. When you add a module to `src/`, list it in the import map in `index.html` (`node tests/importmap.mjs` checks this).
+
+## Credits
+
+- Trailer music: "Happy Beats / Business Moves Vol. 12" by [ENDE.APP](https://ende.app/en), licensed [CC BY 4.0](https://ende.app/en/standard-license)
+- Trailer sound effects: [Kenney](https://kenney.nl/) (CC0)
+- Trailer footage is real gameplay, recorded from the game canvas and edited with [HyperFrames](https://hyperframes.heygen.com/)
