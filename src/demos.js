@@ -8,8 +8,9 @@ export const DEMOS = [
   {
     id: 'move',
     title: 'Run and jump',
-    body: 'Move with A and D or the arrow keys. Hold Space to jump higher, tap it for a short hop.',
-    keys: [['A', 'left'], ['D', 'right'], ['Space', 'jump']],
+    body: 'Move with {left} and {right}. Hold {jump} to jump higher, tap it for a short hop.',
+    touchBody: 'Move with the arrow buttons. Hold the jump button to jump higher, tap it for a short hop.',
+    keys: ['left', 'right', 'jump'],
     level: build({ name: 'demo-move', w: 24, h: H, seed: 5 }, ({ ground, put }) => {
       ground(0, 23, 7);
       put(1, 6, 'P');
@@ -25,8 +26,9 @@ export const DEMOS = [
   {
     id: 'swap',
     title: 'Two worlds, one path',
-    body: 'Ember platforms are only solid in Ember, Frost platforms only in Frost. Press Shift to switch, even mid-air.',
-    keys: [['Shift', 'swap'], ['Space', 'jump']],
+    body: 'Ember platforms are only solid in Ember, Frost platforms only in Frost. Press {swap} to switch, even mid-air.',
+    touchBody: 'Ember platforms are only solid in Ember, Frost platforms only in Frost. Tap the switch button, even mid-air.',
+    keys: ['swap', 'jump'],
     level: build({ name: 'demo-swap', w: 24, h: H, seed: 9 }, ({ ground, row, put }) => {
       ground(0, 4, 7);
       put(1, 6, 'P');
@@ -43,8 +45,9 @@ export const DEMOS = [
   {
     id: 'dash',
     title: 'Dash across gaps',
-    body: 'Press X to dash forward. You get one dash per jump, and it comes back when you land.',
-    keys: [['X', 'dash'], ['Space', 'jump']],
+    body: 'Press {dash} to dash forward. You get one dash per jump, and it comes back when you land.',
+    touchBody: 'Tap the lightning button to dash forward. You get one dash per jump, and it comes back when you land.',
+    keys: ['dash', 'jump'],
     level: build({ name: 'demo-dash', w: 24, h: H, seed: 13 }, ({ ground, put }) => {
       ground(0, 6, 7);
       put(1, 6, 'P');
@@ -60,7 +63,8 @@ export const DEMOS = [
     id: 'goal',
     title: 'Find the portal',
     body: 'Collect shards, touch crystals to save, and reach the portal. Colored spikes only hurt in their own world.',
-    keys: [['Shift', 'swap'], ['Space', 'jump']],
+    touchBody: 'Collect shards, touch crystals to save, and reach the portal. Colored spikes only hurt in their own world.',
+    keys: ['swap', 'jump'],
     level: build({ name: 'demo-goal', w: 24, h: H, seed: 17 }, ({ ground, row, put }) => {
       ground(0, 23, 7);
       put(1, 6, 'P');
@@ -75,6 +79,11 @@ export const DEMOS = [
     done: (w) => w.won && w.collected === 1,
   },
 ];
+
+// Body text with the player's current key labels filled in, e.g. {jump} -> "Space".
+export function demoBody(demo, labelFor, touch) {
+  return touch ? demo.touchBody : demo.body.replace(/\{(\w+)\}/g, (_, a) => labelFor(a));
+}
 
 // Input for the frame that advances the demo clock from prev to t.
 export function demoInput(demo, prev, t) {

@@ -9,6 +9,8 @@ export const DEFAULTS = {
   shake: true,
   reducedFx: typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches,
   showTimer: true,
+  ghost: true,
+  keys: null, // custom key bindings; null = defaults (sanitised by input.js normalizeBindings)
 };
 
 const clampVol = (v, d) => (Number.isFinite(v) ? Math.min(100, Math.max(0, Math.round(v))) : d);
@@ -19,7 +21,8 @@ export function loadSettings() {
     const raw = JSON.parse(localStorage.getItem(KEY));
     if (raw && typeof raw === 'object') {
       for (const k of ['master', 'music', 'sfx']) s[k] = clampVol(raw[k], DEFAULTS[k]);
-      for (const k of ['muted', 'shake', 'reducedFx', 'showTimer']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+      for (const k of ['muted', 'shake', 'reducedFx', 'showTimer', 'ghost']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+      if (raw.keys && typeof raw.keys === 'object') s.keys = raw.keys;
     } else if (localStorage.getItem('zwielicht.mute') === '1') {
       s.muted = true; // carry over the mute flag from the first version
     }

@@ -71,6 +71,10 @@ export class Renderer {
     this.glow.body = [makeGlow(BODY), makeGlow(BODY)];
     this.bottomPad = 0; // reserved space under the world for touch controls
     this.shakeOn = true;
+    this.labelFor = (action) => action; // set by main.js: current key label or touch button symbol
+    // player look; set from the wardrobe (see progress.js skinStyle)
+    this.skin = { body: BODY, visor: '#16131c', outline: false, scarf: null, hat: 'none' };
+    this.time = 0;
     this.resize();
   }
 
@@ -195,7 +199,7 @@ export class Renderer {
       case 'die':
         this.addShake(10);
         this.flash = 0.7;
-        this.emit(20, { x: e.x, y: e.y, speed: 300, color: BODY, size: 4, g: 600, life: 0.9, drag: 1 });
+        this.emit(20, { x: e.x, y: e.y, speed: 300, color: this.skin.body, size: 4, g: 600, life: 0.9, drag: 1 });
         this.emit(16, { x: e.x, y: e.y, speed: 220, color: acc, size: 2.6, life: 0.7, glow: true });
         break;
       case 'respawn':
@@ -288,7 +292,8 @@ export class Renderer {
   }
 
   // ---------- frame ----------
-  render(world, cam, t, time, { showPlayer = true, showSigns = true } = {}) {
+  render(world, cam, t, time, { showPlayer = true, showSigns = true, ghost = null } = {}) {
+    this.time = time;
     const ctx = this.ctx;
     const S = this.scale * this.dpr;
     ctx.setTransform(S, 0, 0, S, 0, 0);
@@ -307,6 +312,7 @@ export class Renderer {
     this.drawTiles(world, cam, t, time);
     this.drawSprings(world, t);
     this.drawShards(world, t, time);
+    if (ghost) this.drawGhost(ghost, t);
     if (showPlayer) this.drawPlayer(world, t);
     this.drawParticles();
     ctx.restore();
@@ -698,7 +704,7 @@ export class Renderer {
     ctx.textBaseline = 'top';
     for (const s of world.level.signs) {
       ctx.fillStyle = css(pal('accent2', t), 0.75);
-      ctx.fillText(s.text, s.x, s.y);
+      ctx.fillText(s.text.replace(/\{(\w+)\}/g, (_, act) => this.labelFor(act)), s.x, s.y);
       ctx.fillStyle = css(pal('accent', t), 0.5);
       ctx.fillRect(s.x, s.y + 20, 18, 2);
     }
@@ -723,9 +729,19 @@ export class Renderer {
 
     // scarf behind body
     if (this.scarf) {
-      ctx.strokeStyle = css(pal('accent', t));
+      const sc = this.skin.scarf;
+      const starlight = sc === 'starlight';
       ctx.lineCap = 'round';
+      if (starlight) {
+        ctx.globalCompositeOperation = 'lighter';
+        const tail = this.scarf[this.scarf.length - 1];
+        this.drawGlow('accent2', tail.x, tail.y, 14, 0.7, t);
+        ctx.globalCompositeOperation = 'source-over';
+      }
       for (let i = 1; i < this.scarf.length; i++) {
+        if (sc === 'aurora') ctx.strokeStyle = i % 2 ? PAL[0].accent : PAL[1].accent;
+        else if (starlight) ctx.strokeStyle = '#fff6d6';
+        else ctx.strokeStyle = sc || css(pal('accent', t));
         ctx.lineWidth = 5 - i * 0.5;
         ctx.beginPath();
         ctx.moveTo(this.scarf[i - 1].x, this.scarf[i - 1].y);
@@ -737,13 +753,19 @@ export class Renderer {
     ctx.save();
     ctx.translate(cx, by);
     ctx.scale(this.sq.x, this.sq.y);
-    ctx.fillStyle = BODY;
+    this.drawHat(this.skin.hat, p.facing, t, H);
+    ctx.fillStyle = this.skin.body;
     ctx.beginPath();
     ctx.roundRect(-W / 2, -H, W, H, 7);
     ctx.fill();
+    if (this.skin.outline) {
+      ctx.strokeStyle = css(pal('accent', t), 0.9);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
     ctx.fillStyle = 'rgba(40,30,45,0.12)';
     ctx.fillRect(-W / 2 + 2, -6, W - 4, 4);
-    ctx.fillStyle = '#16131c';
+    ctx.fillStyle = this.skin.visor;
     ctx.beginPath();
     ctx.roundRect(-W / 2 + 2, -H + 6, W - 4, 9, 4.5);
     ctx.fill();
@@ -752,11 +774,80 @@ export class Renderer {
     ctx.fillStyle = css(pal('accent2', t));
     ctx.fillRect(-4 + f * 3 - 1.5, -H + 8.5 + (4 - eh) / 2, 3, eh);
     ctx.fillRect(3 + f * 3 - 1.5, -H + 8.5 + (4 - eh) / 2, 3, eh);
-    // dash charge pip
+    // dash spent: dim the body until the player lands again
     if (!p.canDash && p.dashT <= 0) {
       ctx.fillStyle = 'rgba(22,19,28,0.5)';
-      ctx.fillRect(-W / 2, -H, W, H);
+      ctx.beginPath();
+      ctx.roundRect(-W / 2, -H, W, H, 7);
+      ctx.fill();
     }
+    ctx.restore();
+  }
+
+  // Accessories are drawn in the player's local space: origin at the feet, top of the head at -H.
+  drawHat(hat, facing, t, H) {
+    const ctx = this.ctx;
+    if (hat === 'antenna') {
+      ctx.strokeStyle = this.skin.visor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-facing * 2, -H + 1);
+      ctx.quadraticCurveTo(-facing * 3, -H - 6, -facing * 6, -H - 10);
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawGlow('accent', -facing * 6, -H - 10, 10, 0.9, t);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = css(pal('accent2', t));
+      ctx.beginPath(); ctx.arc(-facing * 6, -H - 10, 2.6, 0, Math.PI * 2); ctx.fill();
+    } else if (hat === 'horns') {
+      ctx.fillStyle = '#2b2533';
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(side * 3, -H + 2);
+        ctx.quadraticCurveTo(side * 10, -H - 2, side * 9, -H - 9);
+        ctx.quadraticCurveTo(side * 6, -H - 3, side * 8, -H + 3);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else if (hat === 'halo') {
+      const bob = this.reduced ? 0 : Math.sin(this.time * 3) * 1.2;
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawGlow('accent2', 0, -H - 7 + bob, 16, 0.5, t);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = '#ffd36b';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, -H - 7 + bob, 8, 2.6, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (hat === 'crown') {
+      ctx.fillStyle = '#ffd36b';
+      ctx.beginPath();
+      ctx.moveTo(-7, -H + 2); ctx.lineTo(-7, -H - 6); ctx.lineTo(-3.5, -H - 2); ctx.lineTo(0, -H - 8);
+      ctx.lineTo(3.5, -H - 2); ctx.lineTo(7, -H - 6); ctx.lineTo(7, -H + 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = css(pal('accent', t));
+      ctx.beginPath(); ctx.arc(0, -H - 1.5, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // Best-run ghost: a translucent outline that runs the stored inputs in its own world.
+  drawGhost(g, t) {
+    const ctx = this.ctx;
+    const W = PHYS.W, H = PHYS.H;
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = 'rgba(243,239,231,0.22)';
+    ctx.strokeStyle = css(pal('accent2', t), 0.8);
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.roundRect(g.x, g.y, W, H, 7);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(22,19,28,0.55)';
+    ctx.beginPath();
+    ctx.roundRect(g.x + 2, g.y + 6, W - 4, 9, 4.5);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -789,8 +880,8 @@ export class Renderer {
   }
 }
 
-// Tiny level map for the level-select cards.
-export function drawMinimap(canvas, level) {
+// Tiny level map for the level-select cards, with an optional death heatmap ([[x, y], ...] in world px).
+export function drawMinimap(canvas, level, deaths = []) {
   const s = 3;
   canvas.width = level.w * s;
   canvas.height = level.h * s;
@@ -805,4 +896,17 @@ export function drawMinimap(canvas, level) {
       g.fillRect(x * s, y * s, s, s);
     }
   });
+  // soft red blobs that stack up where the player dies most often
+  g.globalAlpha = 1;
+  g.globalCompositeOperation = 'lighter';
+  for (const [x, y] of deaths) {
+    const px = (x / T) * s, py = (y / T) * s;
+    const grad = g.createRadialGradient(px, py, 0, px, py, 11);
+    grad.addColorStop(0, 'rgba(255,70,90,0.85)');
+    grad.addColorStop(0.45, 'rgba(255,70,90,0.35)');
+    grad.addColorStop(1, 'rgba(255,70,90,0)');
+    g.fillStyle = grad;
+    g.fillRect(px - 11, py - 11, 22, 22);
+  }
+  g.globalCompositeOperation = 'source-over';
 }

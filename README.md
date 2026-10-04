@@ -36,7 +36,14 @@ No build step: plain ES modules, Canvas 2D and WebAudio.
 | Pause / resume | Esc, P | Start |
 | Restart level / mute | R / M | |
 
-On first launch an animated tutorial shows each move as a live, scripted game scene (replay it from Settings). Touch devices get on-screen buttons. The in-game **Settings** page lists every control and has master, music and effects volume, mute, screen shake, reduced effects, a timer toggle and a progress reset.
+On first launch an animated tutorial shows each move as a live, scripted game scene (replay it from Settings). Touch devices get on-screen buttons and a touch version of the tutorial. Every key can be rebound in Settings (Esc always pauses), and a gamepad can drive the menus too.
+
+## Progress
+
+- **Stars:** three per level: beat the par time, find every shard, finish without dying.
+- **Ghost:** after a new best time, a translucent replay of that run races you on your next attempt (toggle in Settings).
+- **Wardrobe:** collected shards unlock body colours, scarves and accessories. Nothing is spent.
+- **Death map:** the level select marks where you died most often. The in-game **Settings** page lists every control and has master, music and effects volume, mute, screen shake, reduced effects, a timer toggle and a progress reset.
 
 ## Levels
 
@@ -58,15 +65,18 @@ On first launch an animated tutorial shows each move as a live, scripted game sc
 - `src/render.js` – procedural parallax backdrop, world colour blend, particles, scarf physics
 - `src/audio.js` – synthesised effects and an ambient pad on separate music and effects buses
 - `src/settings.js` – persisted player settings
+- `src/progress.js` – stars, ghost encoding, skins and the death log (pure, unit-tested)
+- `src/demo-player.js` – plays scripted demo scenes for the tutorial and the wardrobe preview
 - `src/demos.js` – scripted tutorial scenes running on the real simulation
 - `src/main.js` – state machine, UI, camera, save data (localStorage)
 
 ## Tests
 
 ```bash
-npm test                # swap regression test + tutorial demo check + solver
+npm test                # unit tests, fairness check, tutorial demos, solver
 npm run solve           # solver: every level is finishable and every shard reachable, using the real physics
 node tests/profile.mjs  # difficulty profile: deadly columns, hazards, landing widths, checkpoint spacing
+node tests/fairness.mjs # no hanging spike may decide a full jump by only a few pixels
 ```
 
 ## Deploy
@@ -77,4 +87,6 @@ Pushing to `main` deploys to GitHub Pages via `.github/workflows/pages.yml`. The
 
 - Trailer music: "Happy Beats / Business Moves Vol. 12" by [ENDE.APP](https://ende.app/en), licensed [CC BY 4.0](https://ende.app/en/standard-license)
 - Trailer sound effects: [Kenney](https://kenney.nl/) (CC0)
+- Fonts: Unbounded, Outfit, JetBrains Mono (SIL Open Font License), self-hosted
+- Icons: [Phosphor Icons](https://phosphoricons.com/) (MIT), self-hosted
 - Trailer footage is real gameplay, recorded from the game canvas and edited with [HyperFrames](https://hyperframes.heygen.com/)

@@ -1,0 +1,107 @@
+/* Phosphor Icons (MIT), bold weight, trimmed to the icons Dusklight uses. Self-hosted. */
+@font-face {
+  font-family: "Phosphor-Bold";
+  src:
+    url("./Phosphor-Bold.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}
+
+.ph-bold {
+  /* use !important to prevent issues with browser extensions that change fonts */
+  font-family: "Phosphor-Bold" !important;
+  speak: never;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+
+  /* Enable Ligatures ================ */
+  letter-spacing: 0;
+  -webkit-font-feature-settings: "liga";
+  -moz-font-feature-settings: "liga=1";
+  -moz-font-feature-settings: "liga";
+  -ms-font-feature-settings: "liga" 1;
+  font-feature-settings: "liga";
+  -webkit-font-variant-ligatures: discretionary-ligatures;
+  font-variant-ligatures: discretionary-ligatures;
+
+  /* Better Font Rendering =========== */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.ph-bold.ph-arrow-counter-clockwise:before {
+  content: "\e038";
+}
+.ph-bold.ph-arrow-fat-up:before {
+  content: "\e52e";
+}
+.ph-bold.ph-arrow-left:before {
+  content: "\e058";
+}
+.ph-bold.ph-broadcast:before {
+  content: "\e0f2";
+}
+.ph-bold.ph-caret-left:before {
+  content: "\e138";
+}
+.ph-bold.ph-caret-right:before {
+  content: "\e13a";
+}
+.ph-bold.ph-circle-notch:before {
+  content: "\eb44";
+}
+.ph-bold.ph-coat-hanger:before {
+  content: "\e7fe";
+}
+.ph-bold.ph-crown:before {
+  content: "\e614";
+}
+.ph-bold.ph-device-rotate:before {
+  content: "\edf2";
+}
+.ph-bold.ph-flame:before {
+  content: "\e624";
+}
+.ph-bold.ph-gear-six:before {
+  content: "\e272";
+}
+.ph-bold.ph-lightning:before {
+  content: "\e2de";
+}
+.ph-bold.ph-lock-simple:before {
+  content: "\e308";
+}
+.ph-bold.ph-pause:before {
+  content: "\e39e";
+}
+.ph-bold.ph-play:before {
+  content: "\e3d0";
+}
+.ph-bold.ph-skull:before {
+  content: "\e916";
+}
+.ph-bold.ph-sparkle:before {
+  content: "\e6a2";
+}
+.ph-bold.ph-speaker-high:before {
+  content: "\e44a";
+}
+.ph-bold.ph-speaker-slash:before {
+  content: "\e45a";
+}
+.ph-bold.ph-star:before {
+  content: "\e46a";
+}
+.ph-bold.ph-swap:before {
+  content: "\e83c";
+}
+.ph-bold.ph-timer:before {
+  content: "\e492";
+}
+.ph-bold.ph-x:before {
+  content: "\e4f6";
+}

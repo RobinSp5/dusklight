@@ -2,49 +2,67 @@ import { LEVELS, TILE as T } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
 import { Renderer, drawMinimap } from './render.js';
 import { Sound } from './audio.js';
-import { Input } from './input.js';
+import { Input, keyLabel, rebind, DEFAULT_BINDINGS } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
-import { DEMOS, demoInput, demoActive } from './demos.js';
+import { DEMOS, demoBody } from './demos.js';
+import { DemoPlayer } from './demo-player.js';
+import {
+  PAR, starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash,
+  SKINS, DEFAULT_SKIN, shardPoints, resolveSkin, skinStyle, addDeath, sanitizeGhosts, sanitizeDeaths,
+} from './progress.js';
 
 const $ = (s) => document.querySelector(s);
-const R = new Renderer($('#game'));
-const S = new Sound();
-const I = new Input();
-
-// One source of truth for every control: the title card and the settings table are built from it.
-const CONTROLS = [
-  { action: 'Move left', keys: ['A', '←'], pad: 'Left stick / D-pad', title: 'Move', titleKeys: ['A', 'D', '←', '→'] },
-  { action: 'Move right', keys: ['D', '→'], pad: 'Left stick / D-pad' },
-  { action: 'Jump (hold to jump higher)', keys: ['Space', 'W', '↑'], pad: 'A', title: 'Jump', titleKeys: ['Space', 'W'] },
-  { action: 'Dash (once per jump)', keys: ['X', 'K'], pad: 'X / RT', title: 'Dash' },
-  { action: 'Switch world', keys: ['Shift', 'J', 'C'], pad: 'B / Y / RB', title: 'Switch world', titleKeys: ['Shift', 'J'], hl: true },
-  { action: 'Pause / resume', keys: ['Esc', 'P'], pad: 'Start', title: 'Pause, restart', titleKeys: ['Esc', 'R'] },
-  { action: 'Restart level', keys: ['R'], pad: 'From the pause menu' },
-  { action: 'Mute sound', keys: ['M'], pad: 'From settings' },
-  { action: 'Menus', keys: ['Tab', 'Enter'], pad: 'Not supported' },
-];
-
 const settings = loadSettings();
+const R = new Renderer($('#game'));
+R.labelFor = (action) => signLabel(action);
+const S = new Sound();
+const I = new Input(settings.keys);
 
-// ---------- save ----------
+// Every control is listed here once; the settings table, title card and tutorial read from it.
+const CONTROLS = [
+  { id: 'left', label: 'Move left', pad: 'Left stick / D-pad' },
+  { id: 'right', label: 'Move right', pad: 'Left stick / D-pad' },
+  { id: 'jump', label: 'Jump (hold to jump higher)', pad: 'A' },
+  { id: 'dash', label: 'Dash (once per jump)', pad: 'X / RT' },
+  { id: 'swap', label: 'Switch world', pad: 'B / Y / RB', hl: true },
+  { id: 'pause', label: 'Pause / resume', pad: 'Start' },
+  { id: 'restart', label: 'Restart level', pad: 'From the pause menu' },
+  { id: 'mute', label: 'Mute sound', pad: 'From settings' },
+];
+const TOUCH_ICON = { left: 'ph-caret-left', right: 'ph-caret-right', jump: 'ph-arrow-fat-up', dash: 'ph-lightning', swap: 'ph-swap' };
+const primaryLabel = (action) => keyLabel(I.bindings[action][0]);
+const TOUCH_SIGN = { left: '◀', right: '▶', jump: '[↑]', dash: '[↯]', swap: '[⇄]' };
+const signLabel = (action) => (touchMode ? TOUCH_SIGN[action] : primaryLabel(action));
+
+// ---------- persistent data ----------
 const SAVE_KEY = 'zwielicht.save.v1'; // key kept from the first release so existing progress survives the rename
+const GHOST_KEY = 'dusklight.ghosts.v1';
+const DEATH_KEY = 'dusklight.deaths.v1';
+const readJSON = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
+const writeJSON = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
+
 function loadSave() {
-  try {
-    const s = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (s && Number.isInteger(s.unlocked) && s.best && typeof s.best === 'object') {
-      for (const k of Object.keys(s.best)) {
-        const e = s.best[k];
-        if (!e || !Number.isFinite(e.time) || !Number.isFinite(e.shards)) delete s.best[k];
-      }
-      s.unlocked = Math.min(Math.max(0, s.unlocked), LEVELS.length - 1);
-      return s;
+  const s = readJSON(SAVE_KEY);
+  if (s && Number.isInteger(s.unlocked) && s.best && typeof s.best === 'object') {
+    for (const k of Object.keys(s.best)) {
+      const e = s.best[k];
+      if (!e || !Number.isFinite(e.time) || !Number.isFinite(e.shards)) delete s.best[k];
+      else e.deathless = !!e.deathless;
     }
-  } catch { /* storage unavailable */ }
-  return { unlocked: 0, best: {} };
+    s.unlocked = Math.min(Math.max(0, s.unlocked), LEVELS.length - 1);
+    s.skin = s.skin && typeof s.skin === 'object' ? s.skin : { ...DEFAULT_SKIN };
+    return s;
+  }
+  return { unlocked: 0, best: {}, skin: { ...DEFAULT_SKIN } };
 }
 let save = loadSave();
-const writeSave = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch { /* ignore */ } };
+const writeSave = () => writeJSON(SAVE_KEY, save);
+let ghosts = sanitizeGhosts(readJSON(GHOST_KEY));
+let deaths = sanitizeDeaths(readJSON(DEATH_KEY));
 const shardCount = LEVELS.map((l) => l.rows.join('').split('o').length - 1);
+const totalShards = shardCount.reduce((a, b) => a + b, 0);
+const points = () => shardPoints(save.best);
+const starsOf = (i) => starsFor(save.best[i], i, shardCount[i]);
 
 const secFmt = new Intl.NumberFormat('en-US', { minimumIntegerDigits: 2, minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = (t) => {
@@ -65,6 +83,9 @@ let attractSwap = 4.5;
 let winTimer = -1;
 let touchMode = matchMedia('(pointer: coarse)').matches;
 let settingsFrom = 'title';
+let runMasks = []; // inputs of the current attempt, one per simulation step (for the ghost)
+let ghost = null; // { world, masks, k }
+let portraitDismissed = false;
 
 const screens = {
   title: $('#screenTitle'),
@@ -74,16 +95,19 @@ const screens = {
   finale: $('#screenFinale'),
   settings: $('#screenSettings'),
   onboarding: $('#screenOnboard'),
+  wardrobe: $('#screenWardrobe'),
 };
-const isAttract = () => state === 'title' || state === 'select' || state === 'onboarding' || (state === 'settings' && settingsFrom === 'title');
+const isAttract = () => ['title', 'select', 'onboarding', 'wardrobe'].includes(state) || (state === 'settings' && settingsFrom === 'title');
 
 function show(name) {
+  if (name !== 'settings') cancelCapture();
   for (const [k, el] of Object.entries(screens)) el.hidden = k !== name;
   const playing = state === 'play' || state === 'pause' || state === 'complete' || (state === 'settings' && settingsFrom === 'pause');
   $('#hud').hidden = !playing;
   $('#touch').hidden = !(touchMode && state === 'play');
   R.setBottomPad(touchMode && state === 'play' ? 120 : 0);
   I.enabled = state === 'play';
+  updatePortraitHint();
   if (name) {
     const f = screens[name].querySelector('[data-autofocus]') || screens[name].querySelector('button:not(:disabled)');
     if (f) requestAnimationFrame(() => f.focus({ preventScroll: true }));
@@ -92,16 +116,24 @@ function show(name) {
   }
 }
 
+function updatePortraitHint() {
+  $('#portraitHint').hidden = !(state === 'play' && touchMode && !portraitDismissed && innerHeight > innerWidth);
+}
+
 function setAccent(p) {
   document.documentElement.style.setProperty('--accent', p ? 'var(--frost)' : 'var(--glut)');
   $('#phasePill').dataset.phase = String(p);
   $('#phasePill').setAttribute('aria-label', `Active world: ${p ? 'Frost' : 'Ember'}`);
 }
 
-function snapCamera() {
-  updateCamera(1, true);
+function applySkin() {
+  save.skin = resolveSkin(save.skin, points());
+  const look = skinStyle(save.skin);
+  R.skin = look;
+  if (wd.player) wd.player.renderer.skin = look;
 }
 
+// ---------- levels ----------
 function startLevel(i) {
   S.init();
   world = new World(LEVELS[i], i);
@@ -111,6 +143,10 @@ function startLevel(i) {
   S.setPhase(world.phase);
   winTimer = -1;
   acc = 0;
+  runMasks = [];
+  ghost = null;
+  const g = ghosts[i];
+  if (settings.ghost && g && g.hash === levelHash(LEVELS[i])) ghost = { world: new World(LEVELS[i], i), masks: decodeRun(g.rle), k: 0 };
   state = 'play';
   I.clearEdges();
   show(null);
@@ -140,6 +176,7 @@ function toTitle() {
   setAccent(world.phase);
   S.setPhase(world.phase);
   attractSwap = 4.5;
+  ghost = null;
   updatePlayLabel();
   show('title');
 }
@@ -165,27 +202,70 @@ function finishLevel() {
   const t = world.time;
   const prev = save.best[i];
   const isBest = !prev || t < prev.time;
-  save.best[i] = { time: isBest ? t : prev.time, shards: Math.max(prev ? prev.shards : 0, world.collected) };
+  const starsBefore = starsOf(i);
+  const pointsBefore = points();
+  save.best[i] = {
+    time: isBest ? t : prev.time,
+    shards: Math.max(prev ? prev.shards : 0, world.collected),
+    deathless: (prev && prev.deathless) || world.deaths === 0,
+  };
   save.unlocked = Math.max(save.unlocked, Math.min(i + 1, LEVELS.length - 1));
   writeSave();
+  const hash = levelHash(LEVELS[i]);
+  if (isBest || !ghosts[i] || ghosts[i].hash !== hash) { // a changed level layout invalidates the old ghost
+    ghosts[i] = { hash, rle: encodeRun(runMasks) };
+    writeJSON(GHOST_KEY, ghosts);
+  }
 
   $('#completeTitle').textContent = `${LEVELS[i].name} cleared`;
   $('#stTime').textContent = fmt(t);
   $('#stShards').textContent = `${world.collected}/${world.shards.length}`;
   $('#stDeaths').textContent = String(world.deaths);
   $('#bestBadge').hidden = !(isBest && prev);
+  renderStars($('#stStars'), i, starsBefore);
+  const unlocked = newlyUnlocked(pointsBefore, points());
+  $('#unlockNote').hidden = !unlocked.length;
+  $('#unlockText').textContent = unlocked.length ? `New look unlocked: ${unlocked.join(', ')}. Try it in the Wardrobe.` : '';
+  applySkin();
   $('#btnNext').textContent = i === LEVELS.length - 1 ? 'See your results' : 'Next level';
   state = 'complete';
   show('complete');
+}
+
+function renderStars(el, i, before) {
+  const now = starsOf(i);
+  const items = [
+    ['fast', `Under ${fmt(PAR[i])}`],
+    ['shards', 'All shards'],
+    ['deathless', 'No deaths'],
+  ];
+  el.replaceChildren(...items.map(([k, text], n) => {
+    const d = document.createElement('div');
+    d.className = `star-item${now[k] ? ' on' : ''}${now[k] && before && !before[k] ? ' new' : ''}`;
+    d.style.setProperty('--i', n);
+    d.innerHTML = '<i class="ph-bold ph-star" aria-hidden="true"></i>';
+    d.append(text);
+    return d;
+  }));
+  el.setAttribute('aria-label', `${now.count} of 3 stars: ${items.filter(([k]) => now[k]).map(([, t]) => t).join(', ') || 'none yet'}`);
+}
+
+function newlyUnlocked(before, after) {
+  const names = [];
+  for (const [part, list] of Object.entries(SKINS)) {
+    for (const item of list) if (item.need > before && item.need <= after) names.push(`${item.name} ${part === 'hat' ? '' : part}`.trim());
+  }
+  return names;
 }
 
 function next() {
   const i = world.index;
   if (i === LEVELS.length - 1) {
     const total = LEVELS.reduce((s, _, k) => s + (save.best[k] ? save.best[k].time : 0), 0);
-    const shards = LEVELS.reduce((s, _, k) => s + (save.best[k] ? save.best[k].shards : 0), 0);
+    const stars = LEVELS.reduce((s, _, k) => s + starsOf(k).count, 0);
     $('#fnTime').textContent = fmt(total);
-    $('#fnShards').textContent = `${shards}/${shardCount.reduce((a, b) => a + b, 0)}`;
+    $('#fnShards').textContent = `${points()}/${totalShards}`;
+    $('#fnStars').textContent = `${stars}/${LEVELS.length * 3}`;
     state = 'finale';
     show('finale');
   } else {
@@ -202,8 +282,11 @@ function toggleMute() {
 // ---------- settings ----------
 function applySettings() {
   S.apply(settings);
-  R.shakeOn = settings.shake;
-  R.reduced = settings.reducedFx;
+  for (const r of [R, ob.player && ob.player.renderer, wd.player && wd.player.renderer]) {
+    if (!r) continue;
+    r.shakeOn = settings.shake;
+    r.reduced = settings.reducedFx;
+  }
   $('#hudTimeStat').hidden = !settings.showTimer;
   for (const id of ['#btnMute', '#btnMuteHud']) {
     const b = $(id);
@@ -215,7 +298,7 @@ function applySettings() {
 }
 
 const RANGES = [['master', '#setMaster', '#outMaster'], ['music', '#setMusic', '#outMusic'], ['sfx', '#setSfx', '#outSfx']];
-const SWITCHES = [['muted', '#setMuted'], ['shake', '#setShake'], ['reducedFx', '#setReduced'], ['showTimer', '#setTimer']];
+const SWITCHES = [['muted', '#setMuted'], ['shake', '#setShake'], ['reducedFx', '#setReduced'], ['showTimer', '#setTimer'], ['ghost', '#setGhost']];
 
 function syncSettingsUI() {
   for (const [k, input, out] of RANGES) {
@@ -238,12 +321,13 @@ function openSettings() {
 
 function closeSettings() {
   if (state !== 'settings') return;
+  cancelCapture();
   state = settingsFrom;
   show(settingsFrom);
 }
 
-function kbdList(keys) {
-  return keys.map((k) => {
+function kbdList(labels) {
+  return labels.map((k) => {
     const el = document.createElement('kbd');
     el.textContent = k;
     return el;
@@ -258,31 +342,81 @@ function buildControls() {
     if (c.hl) tr.className = 'hl';
     const th = document.createElement('th');
     th.scope = 'row';
-    th.textContent = c.action;
+    th.textContent = c.label;
     const kb = document.createElement('td');
     const set = document.createElement('span');
     set.className = 'kbd-set';
-    set.append(...kbdList(c.keys));
+    set.append(...kbdList(I.bindings[c.id].map(keyLabel)));
+    const change = document.createElement('button');
+    change.type = 'button';
+    change.className = 'key-change';
+    change.textContent = 'Change';
+    change.dataset.action = c.id;
+    change.setAttribute('aria-label', `Change key for ${c.label}`);
+    change.addEventListener('click', () => startCapture(c, change));
+    set.append(change);
     kb.append(set);
     const pad = document.createElement('td');
     pad.textContent = c.pad;
     tr.append(th, kb, pad);
     body.append(tr);
   }
+  const menus = document.createElement('tr');
+  menus.innerHTML = '<th scope="row">Menus</th><td><span class="kbd-set"><kbd>Tab</kbd><kbd>Enter</kbd></span></td><td>D-pad, A to select, B to go back</td>';
+  body.append(menus);
+
+  // compact title card
+  const card = [
+    ['Move', ['left', 'right'].flatMap((a) => I.bindings[a].slice(0, 2))],
+    ['Jump', I.bindings.jump.slice(0, 2)],
+    ['Dash', I.bindings.dash.slice(0, 2)],
+    ['Switch world', I.bindings.swap.slice(0, 2), true],
+    ['Pause, restart', [I.bindings.pause[0], I.bindings.restart[0]]],
+  ];
   const dl = $('#titleControls');
-  dl.replaceChildren();
-  for (const c of CONTROLS.filter((x) => x.title)) {
+  dl.replaceChildren(...card.map(([title, codes, hl]) => {
     const row = document.createElement('div');
-    if (c.hl) row.className = 'hl';
+    if (hl) row.className = 'hl';
     const dt = document.createElement('dt');
-    dt.textContent = c.title;
+    dt.textContent = title;
     const dd = document.createElement('dd');
-    dd.append(...kbdList(c.titleKeys || c.keys));
+    dd.append(...kbdList([...new Set(codes.map(keyLabel))]));
     row.append(dt, dd);
-    dl.append(row);
-  }
+    return row;
+  }));
 }
 
+let capturing = null;
+function startCapture(control, button) {
+  cancelCapture();
+  capturing = button;
+  button.setAttribute('aria-pressed', 'true');
+  button.textContent = 'Press a key…';
+  $('#keyCaptureNote').textContent = `Press the new key for “${control.label}”. Esc cancels.`;
+  I.capture = (code) => {
+    capturing = null;
+    if (code !== 'Escape') {
+      const before = I.bindings;
+      settings.keys = rebind(before, control.id, code);
+      I.setBindings(settings.keys);
+      saveSettings(settings);
+      const moved = CONTROLS.filter((c) => c.id !== control.id && before[c.id][0] !== I.bindings[c.id][0])
+        .map((c) => `${c.label} moved to ${keyLabel(I.bindings[c.id][0])}.`);
+      $('#keyCaptureNote').textContent = [`${control.label} is now ${keyLabel(code)}.`, ...moved].join(' ');
+    } else {
+      $('#keyCaptureNote').textContent = 'Key change cancelled.';
+    }
+    buildControls();
+    const again = document.querySelector(`.key-change[data-action="${control.id}"]`);
+    if (again) again.focus();
+  };
+}
+function cancelCapture() {
+  I.capture = null;
+  if (capturing) { capturing = null; buildControls(); }
+}
+
+// ---------- level select ----------
 function buildSelect() {
   const grid = $('#levelGrid');
   grid.replaceChildren();
@@ -297,7 +431,7 @@ function buildSelect() {
     const cv = document.createElement('canvas');
     cv.className = 'minimap';
     cv.setAttribute('aria-hidden', 'true');
-    drawMinimap(cv, lv);
+    drawMinimap(cv, lv, deaths[i] || []);
     const meta = document.createElement('div');
     const num = document.createElement('span');
     num.className = 'lc-num';
@@ -311,8 +445,21 @@ function buildSelect() {
     else if (best) info.textContent = `Best ${fmt(best.time)}, ${best.shards}/${shardCount[i]} shards`;
     else info.textContent = `${shardCount[i]} shards to find`;
     meta.append(num, name, info);
+    const st = starsOf(i);
+    if (!locked) {
+      const row = document.createElement('span');
+      row.className = 'lc-stars';
+      row.setAttribute('aria-hidden', 'true');
+      for (const k of ['fast', 'shards', 'deathless']) {
+        const s = document.createElement('i');
+        s.className = `ph-bold ph-star${st[k] ? ' on' : ''}`;
+        row.append(s);
+      }
+      meta.append(row);
+    }
     b.append(cv, meta);
-    b.setAttribute('aria-label', `Level ${i + 1}: ${lv.name}${locked ? ', locked' : ''}`);
+    const deathCount = (deaths[i] || []).length;
+    b.setAttribute('aria-label', `Level ${i + 1}: ${lv.name}${locked ? ', locked' : `, ${st.count} of 3 stars${deathCount ? `, ${deathCount} deaths recorded` : ''}`}`);
     b.addEventListener('click', () => { S.play('ui'); startLevel(i); });
     grid.append(b);
   });
@@ -320,7 +467,7 @@ function buildSelect() {
 
 // ---------- onboarding ----------
 const OB_KEY = 'dusklight.onboarded';
-const ob = { i: 0, world: null, renderer: null, t: 0, acc: 0, phaseT: 0, cam: { x: 0, y: 0 }, replay: false, accent: -1 };
+const ob = { i: 0, player: null, replay: false, accent: -1 };
 
 function onboardingSeen() {
   try { return localStorage.getItem(OB_KEY) === '1'; } catch { return false; }
@@ -334,10 +481,10 @@ function openOnboarding(replay = false) {
   ob.accent = -1;
   state = 'onboarding';
   show('onboarding');
-  if (!ob.renderer) ob.renderer = new Renderer($('#obCanvas'), { fit: true, viewH: 9 * T, minW: 360 });
-  ob.renderer.resize();
-  ob.renderer.shakeOn = settings.shake;
-  ob.renderer.reduced = settings.reducedFx;
+  if (!ob.player) ob.player = new DemoPlayer($('#obCanvas'));
+  ob.player.renderer.skin = R.skin;
+  applySettings();
+  ob.player.resize();
   const dots = $('#obDots');
   dots.replaceChildren(...DEMOS.map((d, i) => {
     const b = document.createElement('button');
@@ -351,31 +498,27 @@ function openOnboarding(replay = false) {
   setStep(0);
 }
 
-function restartDemo() {
-  ob.world = new World(DEMOS[ob.i].level, 0);
-  ob.renderer.setLevel(ob.world);
-  ob.t = 0;
-  ob.acc = 0;
-  ob.phaseT = ob.world.phase;
-  demoCamera(1, true);
-}
-
 function setStep(i) {
   const dir = i >= ob.i ? 'next' : 'prev';
   ob.i = i;
   const d = DEMOS[i];
   $('#obStep').textContent = `Step ${i + 1} of ${DEMOS.length}`;
   $('#obTitle').textContent = d.title;
-  $('#obBody').textContent = d.body;
+  $('#obBody').textContent = demoBody(d, primaryLabel, touchMode);
   $('#obBar').style.width = `${((i + 1) / DEMOS.length) * 100}%`;
   $('#obPrev').disabled = i === 0;
-  const last = i === DEMOS.length - 1;
-  $('#obNext').textContent = last ? (ob.replay ? 'Done' : 'Start playing') : 'Next';
+  const lastStep = i === DEMOS.length - 1;
+  $('#obNext').textContent = lastStep ? (ob.replay ? 'Done' : 'Start playing') : 'Next';
   [...$('#obDots').children].forEach((b, k) => (k === i ? b.setAttribute('aria-current', 'step') : b.removeAttribute('aria-current')));
-  $('#obKeys').replaceChildren(...d.keys.map(([label, act]) => {
+  $('#obKeys').replaceChildren(...d.keys.map((act) => {
     const k = document.createElement('kbd');
-    k.textContent = label;
     k.dataset.act = act;
+    if (touchMode) {
+      k.className = 'is-touch';
+      k.innerHTML = `<i class="ph-bold ${TOUCH_ICON[act]}" aria-hidden="true"></i>`;
+    } else {
+      k.textContent = primaryLabel(act);
+    }
     return k;
   }));
   // restart the CSS entrance animations
@@ -385,7 +528,7 @@ function setStep(i) {
   void copy.offsetWidth;
   copy.classList.add(`ob-in-${dir}`);
   stage.classList.add('is-switching');
-  restartDemo();
+  ob.player.play(d);
 }
 
 function obNext() {
@@ -402,36 +545,73 @@ function finishOnboarding(play) {
   else toTitle();
 }
 
-function demoCamera(dt, snap = false) {
-  const r = ob.renderer, w = ob.world;
-  const lw = w.w * T, lh = w.h * T;
-  let tx = w.player.x + PHYS.W / 2 - r.vw / 2 + 40;
-  tx = lw <= r.vw ? (lw - r.vw) / 2 : Math.min(Math.max(tx, 0), lw - r.vw);
-  const ty = lh - r.vh;
-  if (snap) { ob.cam.x = tx; ob.cam.y = ty; return; }
-  ob.cam.x += (tx - ob.cam.x) * Math.min(1, dt * 5);
-  ob.cam.y = ty;
+function updateOnboarding(dt) {
+  const on = ob.player.update(dt, time);
+  const phase = ob.player.world.phase;
+  if (ob.accent !== phase) { ob.accent = phase; setAccent(phase); }
+  for (const k of $('#obKeys').children) k.classList.toggle('is-pressed', on.has(k.dataset.act));
 }
 
-function updateOnboarding(dt) {
-  const d = DEMOS[ob.i];
-  ob.acc += dt;
-  while (ob.acc >= STEP) {
-    const prev = ob.t;
-    ob.t += STEP;
-    ob.world.update(STEP, demoInput(d, prev, ob.t));
-    ob.acc -= STEP;
+// ---------- wardrobe ----------
+const wd = { player: null };
+const PART_TARGET = { body: '#wdBody', scarf: '#wdScarf', hat: '#wdHat' };
+const HAT_ICON = { none: 'ph-x', antenna: 'ph-broadcast', horns: 'ph-flame', halo: 'ph-circle-notch', crown: 'ph-crown' };
+
+function openWardrobe() {
+  S.init();
+  state = 'wardrobe';
+  show('wardrobe');
+  if (!wd.player) wd.player = new DemoPlayer($('#wdCanvas'));
+  applySettings();
+  applySkin();
+  wd.player.resize();
+  wd.player.play(DEMOS[1]); // the mid-air switch scene shows the scarf and accessory in motion
+  buildWardrobe();
+}
+
+function buildWardrobe() {
+  const pts = points();
+  $('#wdPoints').innerHTML = '<i class="shard-glyph" aria-hidden="true"></i>';
+  $('#wdPoints').append(`${pts} / ${totalShards} shards`);
+  for (const [part, list] of Object.entries(SKINS)) {
+    const box = $(PART_TARGET[part]);
+    box.replaceChildren(...list.map((item) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch';
+      const unlocked = pts >= item.need;
+      b.disabled = !unlocked;
+      b.setAttribute('aria-pressed', String(save.skin[part] === item.id));
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.setAttribute('aria-hidden', 'true');
+      if (part === 'body') chip.style.background = item.color;
+      else if (part === 'scarf') {
+        chip.style.background = item.color === null ? 'linear-gradient(90deg, var(--glut) 50%, var(--frost) 50%)'
+          : item.color === 'aurora' ? 'repeating-linear-gradient(90deg, var(--glut) 0 5px, var(--frost) 5px 10px)'
+            : item.color === 'starlight' ? 'radial-gradient(circle, #fff6d6 30%, rgba(255,246,214,0.2) 70%)' : item.color;
+      } else chip.innerHTML = `<i class="ph-bold ${HAT_ICON[item.id]}"></i>`;
+      b.append(chip, item.name);
+      if (!unlocked) {
+        const need = document.createElement('span');
+        need.className = 'need';
+        need.innerHTML = '<i class="ph-bold ph-lock-simple" aria-hidden="true"></i>';
+        need.append(`${item.need}`);
+        b.append(need);
+        b.setAttribute('aria-label', `${item.name}, locked, needs ${item.need} shards`);
+      }
+      b.addEventListener('click', () => {
+        save.skin = { ...save.skin, [part]: item.id };
+        applySkin();
+        writeSave();
+        S.play('ui');
+        buildWardrobe();
+        const again = [...$(PART_TARGET[part]).children][list.indexOf(item)];
+        if (again) again.focus();
+      });
+      return b;
+    }));
   }
-  for (const e of ob.world.events) ob.renderer.fx(e, ob.phaseT);
-  ob.world.events.length = 0;
-  if (ob.t >= d.duration) restartDemo();
-  ob.phaseT += (ob.world.phase - ob.phaseT) * Math.min(1, dt * 7);
-  if (ob.accent !== ob.world.phase) { ob.accent = ob.world.phase; setAccent(ob.accent); }
-  demoCamera(dt);
-  ob.renderer.update(dt, ob.world, time);
-  ob.renderer.render(ob.world, ob.cam, ob.phaseT, time, { showSigns: false });
-  const on = demoActive(d, ob.t);
-  for (const k of $('#obKeys').children) k.classList.toggle('is-pressed', on.has(k.dataset.act));
 }
 
 // ---------- events from the simulation ----------
@@ -440,10 +620,15 @@ function handleEvent(e) {
   S.play(e.type, e);
   if (e.type === 'swap') { setAccent(e.phase); S.setPhase(e.phase); }
   if (e.type === 'respawn') { setAccent(world.phase); S.setPhase(world.phase); }
+  if (e.type === 'die') { addDeath(deaths, world.index, e.x, e.y); writeJSON(DEATH_KEY, deaths); }
   if (e.type === 'win') winTimer = 1.1;
 }
 
 // ---------- camera ----------
+function snapCamera() {
+  updateCamera(1, true);
+}
+
 function updateCamera(dt, snap = false) {
   const lw = world.w * T, lh = world.h * T;
   let tx, ty;
@@ -478,8 +663,51 @@ function updateHud() {
   setText('hudDeaths', String(world.deaths));
 }
 
+// ---------- gamepad menu navigation ----------
+function back() {
+  if (state === 'play') pause();
+  else if (state === 'pause') resume();
+  else if (state === 'select' || state === 'wardrobe') toTitle();
+  else if (state === 'settings') closeSettings();
+  else if (state === 'onboarding') finishOnboarding(false);
+}
+
+function onMenu(dir) {
+  const screen = Object.entries(screens).find(([k]) => k === state);
+  if (!screen) return;
+  document.body.classList.add('gp-nav');
+  const items = [...screen[1].querySelectorAll('button:not(:disabled), input:not(:disabled)')].filter((el) => el.getClientRects().length > 0);
+  if (!items.length) return;
+  const cur = document.activeElement;
+  const i = items.indexOf(cur);
+  if (dir === 'back') { back(); return; }
+  if (dir === 'ok') {
+    if (i >= 0) cur.click();
+    else items[0].focus();
+    return;
+  }
+  if (cur && cur.type === 'range' && (dir === 'left' || dir === 'right')) {
+    cur.value = String(Number(cur.value) + (dir === 'right' ? 1 : -1) * Number(cur.step || 1));
+    cur.dispatchEvent(new Event('input', { bubbles: true }));
+    cur.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+  const delta = dir === 'up' || dir === 'left' ? -1 : 1;
+  const nextIndex = i < 0 ? 0 : (i + delta + items.length) % items.length;
+  items[nextIndex].focus();
+  items[nextIndex].scrollIntoView({ block: 'nearest' });
+}
+
 // ---------- loop ----------
 function frame(now) {
+  try {
+    step(now);
+  } finally {
+    requestAnimationFrame(frame);
+  }
+}
+
+function step(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   time += dt;
@@ -488,8 +716,14 @@ function frame(now) {
   if (state === 'play') {
     acc += dt;
     while (acc >= STEP) {
-      world.update(STEP, I.snapshot());
+      const inp = I.snapshot();
+      if (!world.won) runMasks.push(inputToMask(inp));
+      world.update(STEP, inp);
       I.consume();
+      if (ghost && ghost.k < ghost.masks.length) {
+        ghost.world.update(STEP, maskToInput(ghost.masks[ghost.k++]));
+        ghost.world.events.length = 0;
+      }
       acc -= STEP;
     }
     for (const e of world.events) handleEvent(e);
@@ -500,13 +734,16 @@ function frame(now) {
     }
   } else if (state === 'onboarding') {
     updateOnboarding(dt);
-  } else if (isAttract()) {
+  } else if (state === 'wardrobe') {
+    wd.player.update(dt, time);
+  }
+  if (isAttract() && state !== 'onboarding') {
     attractSwap -= dt;
     if (attractSwap <= 0) {
       attractSwap = 4.5;
       world.phase = 1 - world.phase;
       S.setPhase(world.phase);
-      setAccent(world.phase);
+      if (state !== 'wardrobe') setAccent(world.phase);
     }
   }
 
@@ -518,15 +755,17 @@ function frame(now) {
   updateCamera(dt);
   R.update(dt, world, time);
   const attract = isAttract();
-  R.render(world, cam, phaseT, time, { showPlayer: !attract, showSigns: !attract });
+  const gp = ghost && !attract && ghost.world.player.alive && !ghost.world.won ? ghost.world.player : null;
+  R.render(world, cam, phaseT, time, { showPlayer: !attract, showSigns: !attract, ghost: gp });
   S.tick(dt);
   updateHud();
-  requestAnimationFrame(frame);
 }
 
 // ---------- wiring ----------
 $('#btnPlay').addEventListener('click', () => { S.play('ui'); startLevel(nextUnplayed()); });
 $('#btnLevels').addEventListener('click', () => { S.play('ui'); openSelect(); });
+$('#btnWardrobe').addEventListener('click', () => { S.play('ui'); openWardrobe(); });
+$('#btnWardrobeBack').addEventListener('click', toTitle);
 $('#btnBack').addEventListener('click', toTitle);
 $('#btnResume').addEventListener('click', resume);
 $('#btnRestart').addEventListener('click', () => startLevel(world.index));
@@ -544,6 +783,15 @@ $('#obNext').addEventListener('click', obNext);
 $('#obPrev').addEventListener('click', obPrev);
 $('#obSkip').addEventListener('click', () => finishOnboarding(false));
 $('#btnReplayTutorial').addEventListener('click', () => openOnboarding(true));
+$('#btnPortraitClose').addEventListener('click', () => { portraitDismissed = true; updatePortraitHint(); });
+$('#btnResetKeys').addEventListener('click', () => {
+  cancelCapture();
+  settings.keys = null;
+  I.setBindings(DEFAULT_BINDINGS);
+  saveSettings(settings);
+  buildControls();
+  $('#keyCaptureNote').textContent = 'All keys are back to their defaults.';
+});
 for (const [k, input, out] of RANGES) {
   $(input).addEventListener('input', (e) => {
     settings[k] = Number(e.target.value);
@@ -562,7 +810,7 @@ for (const [k, input] of SWITCHES) {
     if (k === 'muted' && !settings.muted) S.play('ui');
   });
 }
-$('#resetText').textContent = `Delete all best times and lock levels 2 to ${LEVELS.length} again? This cannot be undone.`;
+$('#resetText').textContent = `Delete all best times, stars, ghosts and the death map, and lock levels 2 to ${LEVELS.length} again? Unlocked looks lock again too. This cannot be undone.`;
 $('#btnReset').addEventListener('click', () => {
   $('#btnReset').hidden = true;
   $('#resetDone').hidden = true;
@@ -575,34 +823,39 @@ $('#btnResetNo').addEventListener('click', () => {
   $('#btnReset').focus();
 });
 $('#btnResetYes').addEventListener('click', () => {
-  save = { unlocked: 0, best: {} };
+  save = { unlocked: 0, best: {}, skin: { ...DEFAULT_SKIN } };
+  ghosts = {};
+  deaths = {};
   writeSave();
+  writeJSON(GHOST_KEY, ghosts);
+  writeJSON(DEATH_KEY, deaths);
+  applySkin();
   updatePlayLabel();
   $('#resetConfirm').hidden = true;
   $('#btnReset').hidden = false;
   $('#resetDone').hidden = false;
   $('#btnReset').focus();
 });
-I.onPadPause = () => (state === 'play' ? pause() : state === 'pause' ? resume() : null);
+I.onPadPause = () => (state === 'play' ? pause() : state === 'pause' || state === 'settings' ? back() : null);
+I.onMenu = onMenu;
 
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
-  if (e.code === 'Escape' || e.code === 'KeyP') {
-    if (state === 'play') pause();
-    else if (state === 'pause') resume();
-    else if (state === 'select') toTitle();
-    else if (state === 'settings') closeSettings();
-    else if (state === 'onboarding') finishOnboarding(false);
+  const action = I.actionFor(e.code);
+  if (action === 'pause') {
+    back();
   } else if (state === 'onboarding' && e.code === 'ArrowRight') {
     obNext();
   } else if (state === 'onboarding' && e.code === 'ArrowLeft') {
     obPrev();
-  } else if (e.code === 'KeyR' && state === 'play' && !world.won) {
+  } else if (action === 'restart' && state === 'play' && !world.won) {
     startLevel(world.index);
-  } else if (e.code === 'KeyM') {
+  } else if (action === 'mute') {
     toggleMute();
   }
 });
+addEventListener('pointerdown', () => document.body.classList.remove('gp-nav'));
+addEventListener('keydown', () => document.body.classList.remove('gp-nav'));
 
 document.querySelectorAll('.t-btn').forEach((b) => {
   const act = b.dataset.act;
@@ -626,23 +879,28 @@ addEventListener('touchstart', () => {
 addEventListener('resize', () => {
   R.resize();
   updateCamera(1, true);
-  if (ob.renderer) { ob.renderer.resize(); if (ob.world) demoCamera(1, true); }
+  if (ob.player) ob.player.resize();
+  if (wd.player) wd.player.resize();
+  updatePortraitHint();
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { pause(); if (S.ctx) S.ctx.suspend(); }
 });
 addEventListener('pointerdown', () => S.init());
 
-// Debug/test hook (read-only snapshot + level jump), used by the Playwright smoke test.
+// Debug/test hook (read-only snapshot + level jump), used by the Playwright smoke tests.
 window.__dusklight = {
   get state() { return state; },
   get world() { return world; },
+  get ghost() { return ghost; },
+  get save() { return save; },
   startLevel,
   settings,
 };
 
 buildControls();
 applySettings();
+applySkin();
 updatePlayLabel();
 setAccent(0);
 if (onboardingSeen()) show('title');

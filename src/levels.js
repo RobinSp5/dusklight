@@ -13,6 +13,7 @@ export function build(meta, draw) {
     fill(x0, y0, x1, y1, c) { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) api.put(x, y, c); },
     ground(x0, x1, top, c = '#') { api.fill(x0, top, x1, h - 1, c); },
     row(x0, x1, y, c) { api.fill(x0, y, x1, y, c); },
+    // {action} tokens are replaced with the player's current key or touch button when drawn
     sign(x, y, text) { signs.push({ x: x * TILE, y: y * TILE, text }); },
   };
   draw(api);
@@ -23,16 +24,16 @@ export const LEVELS = [
   build({ name: 'Awakening', w: 96, h: 17, seed: 11 }, ({ ground, row, put, fill, sign }) => {
     ground(0, 18, 14);
     put(3, 13, 'P');
-    sign(2, 9, '← →  move');
+    sign(2, 9, '{left} {right}  move');
     put(8, 12, 'o'); put(10, 11, 'o'); put(12, 12, 'o');
-    sign(14, 8, 'Space  jump');
+    sign(14, 8, '{jump}  jump');
     ground(23, 34, 14);
     put(21, 10, 'o');
     put(29, 13, '^'); put(30, 13, '^');
     ground(35, 40, 12);
     put(38, 9, 'o');
     ground(41, 46, 14);
-    sign(41, 8, 'Shift  switch world');
+    sign(41, 8, '{swap}  switch world');
     row(47, 52, 14, 'B');
     put(50, 11, 'o');
     ground(53, 70, 14);
@@ -57,7 +58,7 @@ export const LEVELS = [
     row(36, 38, 12, 'A');
     ground(41, 50, 14);
     put(43, 13, 'C');
-    sign(44, 8, 'X  dash');
+    sign(44, 8, '{dash}  dash');
     put(54, 11, 'o');
     ground(57, 80, 14);
     row(66, 68, 12, 'A');
@@ -151,10 +152,10 @@ export const LEVELS = [
     put(37, 13, 'C');
     put(40, 13, '^'); put(41, 13, '^');
     // phase steps under a spike ceiling: full jumps are deadly
-    row(45, 70, 5, '#'); row(45, 70, 6, 'v');
-    row(47, 49, 12, 'A');
+    fill(45, 5, 70, 6, '#'); row(45, 70, 7, 'v');
+    row(47, 49, 11, 'A');
     row(53, 55, 11, 'B'); put(54, 9, 'o');
-    row(59, 61, 12, 'A');
+    row(59, 61, 11, 'A');
     row(65, 67, 11, 'B');
     ground(70, 84, 14);
     row(72, 76, 13, '^'); put(78, 13, '^'); row(82, 84, 13, '^');
@@ -178,12 +179,12 @@ export const LEVELS = [
     put(2, 13, 'P');
     sign(1, 8, 'colored spikes only hurt in their own world');
     ground(9, 30, 14);
-    row(9, 30, 8, '#'); row(9, 30, 9, 'v'); // a full jump here touches the ceiling spikes
+    fill(9, 8, 30, 9, '#'); row(9, 30, 10, 'v'); // a full jump here touches the ceiling spikes
     fill(15, 14, 16, 16, '.'); fill(28, 14, 29, 16, '.');
     row(12, 14, 13, 'a');
     row(18, 20, 13, 'b'); put(16, 11, 'o');
     put(22, 13, '^');
-    row(24, 25, 13, 'a'); row(26, 27, 13, 'b'); put(26, 10, 'o');
+    row(24, 25, 13, 'a'); row(26, 27, 13, 'b'); put(26, 11, 'o');
     ground(31, 36, 14);
     put(33, 13, 'C');
     // pillars crowned with phase spikes between phase platforms
@@ -252,14 +253,14 @@ export const LEVELS = [
     ground(7, 149, 16); row(7, 149, 15, '^');
     // tiny phase platforms under a spiked ceiling
     row(8, 40, 7, '#'); row(8, 40, 8, 'v');
-    row(9, 10, 13, 'B');
+    row(9, 10, 12, 'B');
     row(14, 15, 12, 'A');
-    row(19, 20, 13, 'B'); put(22, 10, 'o');
+    row(19, 20, 12, 'B'); put(22, 10, 'o');
     row(24, 25, 12, 'A');
     row(29, 30, 12, 'B');
-    row(34, 35, 13, 'A');
-    ground(39, 46, 13);
-    put(41, 12, 'C');
+    row(34, 35, 12, 'A');
+    ground(39, 46, 12);
+    put(41, 11, 'C');
     // dash + swap between one-tile pillars
     row(51, 51, 12, '#'); put(51, 11, 'b');
     row(57, 58, 12, 'A');
@@ -276,11 +277,11 @@ export const LEVELS = [
     put(106, 9, 'C');
     put(108, 9, 'a'); put(111, 9, 'b');
     // final run: single tiles, alternating worlds, spiked sky
-    row(117, 137, 4, '#'); row(117, 137, 5, 'v');
+    fill(117, 4, 137, 5, '#'); row(117, 137, 6, 'v');
     row(119, 119, 10, 'A');
-    row(124, 124, 9, 'B'); put(126, 6, 'o');
+    row(124, 124, 10, 'B'); put(126, 7, 'o');
     row(129, 129, 10, 'A');
-    row(134, 134, 9, 'B');
+    row(134, 134, 10, 'B');
     ground(139, 149, 10);
     put(146, 9, 'E');
   }),

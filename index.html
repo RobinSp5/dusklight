@@ -8,10 +8,8 @@
   <title>Dusklight</title>
   <meta name="description" content="A 2D platformer between two worlds. Switch between Ember and Frost to make your path appear.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Cpath d=%22M16 2 28 16 16 30 4 16z%22 fill=%22%23ff8a4c%22/%3E%3Cpath d=%22M16 2 28 16 16 30z%22 fill=%22%235ee0ff%22/%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Outfit:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap">
-  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
+  <link rel="stylesheet" href="assets/icons/icons.css">
   <link rel="stylesheet" href="styles.css?v=__V__">
 </head>
 <body>
@@ -44,6 +42,7 @@
         <div class="actions">
           <button class="btn btn-primary" id="btnPlay" type="button"><i class="ph-bold ph-play" aria-hidden="true"></i><span id="btnPlayLabel">Play</span></button>
           <button class="btn" id="btnLevels" type="button">Select level</button>
+          <button class="btn" id="btnWardrobe" type="button"><i class="ph-bold ph-coat-hanger" aria-hidden="true"></i>Wardrobe</button>
           <button class="icon-btn icon-btn-lg" id="btnSettings" type="button" aria-label="Settings"><i class="ph-bold ph-gear-six" aria-hidden="true"></i></button>
           <button class="icon-btn icon-btn-lg" id="btnMute" type="button" aria-label="Mute sound"><i class="ph-bold ph-speaker-high" aria-hidden="true"></i></button>
         </div>
@@ -61,6 +60,27 @@
           <h2 id="selectTitle">Select level</h2>
         </div>
         <div class="level-grid" id="levelGrid"></div>
+      </div>
+    </section>
+
+    <section class="screen screen-select screen-wardrobe" id="screenWardrobe" aria-labelledby="wardrobeTitle" hidden>
+      <div class="select-wrap">
+        <div class="select-head">
+          <button class="icon-btn icon-btn-lg" id="btnWardrobeBack" type="button" aria-label="Back to title" data-autofocus><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
+          <h2 id="wardrobeTitle">Wardrobe</h2>
+          <p class="points" id="wdPoints" role="status"></p>
+        </div>
+        <div class="wardrobe-grid">
+          <div class="wd-preview">
+            <canvas id="wdCanvas" aria-hidden="true"></canvas>
+            <p class="set-note">New looks unlock as you collect shards. Nothing is spent.</p>
+          </div>
+          <div class="wd-parts">
+            <section class="set-group" aria-labelledby="wdBodyTitle"><h3 id="wdBodyTitle">Body</h3><div class="swatches" id="wdBody"></div></section>
+            <section class="set-group" aria-labelledby="wdScarfTitle"><h3 id="wdScarfTitle">Scarf</h3><div class="swatches" id="wdScarf"></div></section>
+            <section class="set-group" aria-labelledby="wdHatTitle"><h3 id="wdHatTitle">Accessory</h3><div class="swatches" id="wdHat"></div></section>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -109,6 +129,10 @@
                 <label for="setTimer">Show timer</label>
                 <input class="switch" type="checkbox" role="switch" id="setTimer" name="showTimer">
               </div>
+              <div class="set-row">
+                <label for="setGhost">Best-run ghost<span class="set-hint">Race a replay of your fastest run</span></label>
+                <input class="switch" type="checkbox" role="switch" id="setGhost" name="ghost">
+              </div>
             </section>
 
             <section class="set-group" aria-labelledby="hProgress">
@@ -135,6 +159,10 @@
               <thead><tr><th scope="col">Action</th><th scope="col">Keyboard</th><th scope="col">Gamepad</th></tr></thead>
               <tbody id="keysBody"></tbody>
             </table>
+            <p class="set-note" id="keyCaptureNote" role="status">Choose “Change” and press a new key. Esc always pauses.</p>
+            <div class="actions set-actions">
+              <button class="btn" id="btnResetKeys" type="button"><i class="ph-bold ph-arrow-counter-clockwise" aria-hidden="true"></i>Reset keys</button>
+            </div>
             <p class="set-note">On touch screens, on-screen buttons appear while you play.</p>
           </section>
         </div>
@@ -181,11 +209,13 @@
       <div class="panel panel-wide">
         <p class="badge" id="bestBadge" hidden>New best time</p>
         <h2 id="completeTitle">Level cleared</h2>
+        <div class="stars-row" id="stStars" role="img" aria-label="Stars"></div>
         <div class="stats">
           <div><span class="stat-label">Time</span><span class="stat-val" id="stTime">0:00.0</span></div>
           <div><span class="stat-label">Shards</span><span class="stat-val" id="stShards">0/0</span></div>
           <div><span class="stat-label">Deaths</span><span class="stat-val" id="stDeaths">0</span></div>
         </div>
+        <p class="unlock-note" id="unlockNote" hidden><i class="ph-bold ph-sparkle" aria-hidden="true"></i><span id="unlockText"></span></p>
         <div class="actions">
           <button class="btn btn-primary" id="btnNext" type="button" data-autofocus>Next level</button>
           <button class="btn" id="btnAgain" type="button">Play again</button>
@@ -200,6 +230,7 @@
         <div class="stats">
           <div><span class="stat-label">Total time</span><span class="stat-val" id="fnTime">0:00.0</span></div>
           <div><span class="stat-label">Shards</span><span class="stat-val" id="fnShards">0/0</span></div>
+          <div><span class="stat-label">Stars</span><span class="stat-val" id="fnStars">0/0</span></div>
         </div>
         <div class="actions">
           <button class="btn btn-primary" id="btnFinaleMenu" type="button" data-autofocus>Back to title</button>
@@ -222,6 +253,12 @@
 
   <!-- Cache busting: the deploy workflow replaces __V__ with the commit hash, so a browser never
        mixes files from two releases. Every module in src/ must be listed (checked by tests/importmap.mjs). -->
+  <div class="portrait-hint" id="portraitHint" role="status" hidden>
+    <i class="ph-bold ph-device-rotate" aria-hidden="true"></i>
+    <span>Turn your phone sideways for a bigger view.</span>
+    <button class="icon-btn" id="btnPortraitClose" type="button" aria-label="Dismiss hint"><i class="ph-bold ph-x" aria-hidden="true"></i></button>
+  </div>
+
   <script type="importmap">
   {
     "imports": {
@@ -231,7 +268,9 @@
       "./src/audio.js": "./src/audio.js?v=__V__",
       "./src/input.js": "./src/input.js?v=__V__",
       "./src/settings.js": "./src/settings.js?v=__V__",
-      "./src/demos.js": "./src/demos.js?v=__V__"
+      "./src/demos.js": "./src/demos.js?v=__V__",
+      "./src/progress.js": "./src/progress.js?v=__V__",
+      "./src/demo-player.js": "./src/demo-player.js?v=__V__"
     }
   }
   </script>

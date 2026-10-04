@@ -486,6 +486,118 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
   .ob-body { font-size: 16px; }
 }
 
+/* ---------- wardrobe ---------- */
+.screen-wardrobe .select-wrap { width: min(1120px, 100%); padding-block: 8px; }
+.points {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  background: rgb(21 18 27 / 0.8);
+  border: 1px solid rgb(243 239 231 / 0.14);
+  font: 700 15px 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+.wardrobe-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.wd-preview {
+  padding: 14px;
+  border-radius: var(--r-panel);
+  background: rgb(21 18 27 / 0.78);
+  border: 1px solid rgb(243 239 231 / 0.12);
+}
+.wd-preview canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: #0d0b14; }
+.wd-preview .set-note { margin: 12px 4px 0; }
+.wd-parts { display: grid; gap: 16px; }
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 14px 6px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgb(243 239 231 / 0.16);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--paper);
+  font: 500 14px 'Outfit', sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 0.2s var(--ease), transform 0.2s var(--ease);
+}
+.swatch:hover:not(:disabled) { border-color: var(--accent); }
+.swatch:active:not(:disabled) { transform: scale(0.97); }
+.swatch[aria-pressed="true"] { border-color: var(--accent); background: rgb(255 255 255 / 0.1); box-shadow: inset 0 0 0 1px var(--accent); }
+.swatch:disabled { cursor: not-allowed; color: var(--muted); }
+.swatch .chip { width: 28px; height: 28px; border-radius: var(--r-pill); border: 1px solid rgb(243 239 231 / 0.25); flex: none; display: grid; place-items: center; font-size: 15px; }
+.swatch .need { font: 700 12px 'JetBrains Mono', monospace; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.swatch:disabled .chip { opacity: 0.35; }
+
+/* ---------- stars ---------- */
+.stars-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.star-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--muted);
+  font-size: 14px;
+}
+.star-item i { font-size: 18px; color: rgb(243 239 231 / 0.25); }
+.star-item.on { color: var(--paper); }
+.star-item.on i { color: #ffd36b; }
+.star-item.new i { animation: star-pop 0.6s var(--ease) both; animation-delay: calc(var(--i) * 160ms + 250ms); }
+.lc-stars { display: flex; gap: 3px; margin-top: 8px; font-size: 15px; color: rgb(243 239 231 / 0.22); }
+.lc-stars .on { color: #ffd36b; }
+.unlock-note { display: flex; align-items: center; gap: 8px; margin-top: 18px; color: var(--paper); font-size: 15px; }
+.unlock-note i { color: #ffd36b; }
+@keyframes star-pop { 0% { transform: scale(0.3) rotate(-30deg); opacity: 0; } 70% { transform: scale(1.35) rotate(8deg); opacity: 1; } 100% { transform: none; } }
+
+/* ---------- key rebinding ---------- */
+.key-change {
+  margin-left: 4px;
+  padding: 5px 10px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgb(243 239 231 / 0.18);
+  background: transparent;
+  color: var(--muted);
+  font: 500 12px 'Outfit', sans-serif;
+  cursor: pointer;
+}
+.key-change:hover { color: var(--paper); border-color: var(--accent); }
+.key-change[aria-pressed="true"] { color: var(--ink); background: var(--accent); border-color: var(--accent); }
+.key-change:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- touch extras ---------- */
+.ob-keys kbd.is-touch { min-width: 46px; font-size: 18px; display: inline-grid; place-items: center; }
+.portrait-hint {
+  position: fixed;
+  left: 50%;
+  top: max(64px, calc(env(safe-area-inset-top) + 56px));
+  z-index: var(--z-hud);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 32px);
+  padding: 8px 8px 8px 16px;
+  border-radius: var(--r-pill);
+  background: rgb(21 18 27 / 0.88);
+  border: 1px solid rgb(243 239 231 / 0.16);
+  font-size: 14px;
+  transform: translateX(-50%);
+}
+.portrait-hint > i { color: var(--accent); font-size: 20px; }
+
+/* gamepad navigation: always show where focus is */
+body.gp-nav :is(button, input):focus { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+@media (max-width: 900px) {
+  .wardrobe-grid { grid-template-columns: 1fr; }
+}
+
 /* ---------- modals ---------- */
 .screen-modal {
   display: grid;
