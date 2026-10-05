@@ -1,15 +1,19 @@
-import { LEVELS, ACTS, TILE as T } from './levels.js';
+import { LEVELS, ACTS, TILE as T, build } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
 import { Renderer, drawMinimap } from './render.js';
 import { Sound } from './audio.js';
 import { Input, keyLabel, rebind, DEFAULT_BINDINGS } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
-import { DEMOS, demoBody } from './demos.js';
+import { DEMOS, SHOWCASE, demoBody } from './demos.js';
 import { DemoPlayer } from './demo-player.js';
 import {
-  PAR, starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash,
-  SKINS, DEFAULT_SKIN, shardPoints, resolveSkin, skinStyle, addDeath, sanitizeGhosts, sanitizeDeaths,
+  PAR, starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash, addDeath, sanitizeGhosts, sanitizeDeaths,
 } from './progress.js';
+import {
+  SLOTS, SLOT_NAMES, TIERS, CATALOG, itemById, newShop, sanitizeShop, migrateFromSkins,
+  earnings, deposit, buy, equip, setGoal, goalItem, lookFor,
+} from './shop.js';
+import { THEMES } from './cosmetics.js';
 
 const $ = (s) => document.querySelector(s);
 const settings = loadSettings();
@@ -41,8 +45,16 @@ const DEATH_KEY = 'dusklight.deaths.v1';
 const readJSON = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
 const writeJSON = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
 
+// total shards ever found (best per level); used for the finale and the one-time shop migration
+const foundShards = (best) => Object.values(best || {}).reduce((s, e) => s + (e && Number.isFinite(e.shards) ? e.shards : 0), 0);
+
+// The shop is stored under its own key so a tab still running the pre-shop version (which rewrites the
+// main save without a shop) can never wipe purchases or trigger the welcome migration a second time.
+const SHOP_KEY = 'dusklight.shop.v1';
+let migratedOnLoad = false;
 function loadSave() {
   const s = readJSON(SAVE_KEY);
+  const storedShop = readJSON(SHOP_KEY);
   if (s && Number.isInteger(s.unlocked) && s.best && typeof s.best === 'object') {
     for (const k of Object.keys(s.best)) {
       const e = s.best[k];
@@ -52,18 +64,34 @@ function loadSave() {
     // a level counts as unlocked when the one before it was cleared (old saves stopped at level 8)
     const cleared = Object.keys(s.best).map((k) => Math.min(Number(k) + 1, LEVELS.length - 1));
     s.unlocked = Math.min(Math.max(0, s.unlocked, ...cleared), LEVELS.length - 1);
-    s.skin = s.skin && typeof s.skin === 'object' ? s.skin : { ...DEFAULT_SKIN };
+    // saves from before the shop: keep the looks the old shard thresholds unlocked, found shards become the wallet
+    const known = storedShop || s.shop;
+    migratedOnLoad = !known;
+    s.shop = known ? sanitizeShop(known) : migrateFromSkins(s.skin, foundShards(s.best));
+    delete s.skin;
     return s;
   }
-  return { unlocked: 0, best: {}, skin: { ...DEFAULT_SKIN } };
+  return { unlocked: 0, best: {}, shop: storedShop ? sanitizeShop(storedShop) : newShop() };
 }
 let save = loadSave();
-const writeSave = () => writeJSON(SAVE_KEY, save);
+const writeSave = () => {
+  const { shop, ...rest } = save;
+  writeJSON(SAVE_KEY, rest);
+  writeJSON(SHOP_KEY, shop);
+};
+if (migratedOnLoad) writeSave(); // persist a migration right away, so the welcome balance is granted exactly once
+// another tab changed the save or the shop: adopt it instead of overwriting it later with stale data
+addEventListener('storage', (e) => {
+  if (e.key !== SAVE_KEY && e.key !== SHOP_KEY) return;
+  save = loadSave();
+  applyLook();
+  updateWallet();
+  if (state === 'shop') { buildShopItems(); syncShop(); }
+});
 let ghosts = sanitizeGhosts(readJSON(GHOST_KEY));
 let deaths = sanitizeDeaths(readJSON(DEATH_KEY));
 const shardCount = LEVELS.map((l) => l.rows.join('').split('o').length - 1);
 const totalShards = shardCount.reduce((a, b) => a + b, 0);
-const points = () => shardPoints(save.best);
 const starsOf = (i) => starsFor(save.best[i], i, shardCount[i]);
 
 const secFmt = new Intl.NumberFormat('en-US', { minimumIntegerDigits: 2, minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -97,9 +125,9 @@ const screens = {
   finale: $('#screenFinale'),
   settings: $('#screenSettings'),
   onboarding: $('#screenOnboard'),
-  wardrobe: $('#screenWardrobe'),
+  shop: $('#screenShop'),
 };
-const isAttract = () => ['title', 'select', 'onboarding', 'wardrobe'].includes(state) || (state === 'settings' && settingsFrom === 'title');
+const isAttract = () => ['title', 'select', 'onboarding', 'shop'].includes(state) || (state === 'settings' && settingsFrom === 'title');
 
 function show(name) {
   if (name !== 'settings') cancelCapture();
@@ -128,11 +156,45 @@ function setAccent(p) {
   $('#phasePill').setAttribute('aria-label', `Active world: ${p ? 'Frost' : 'Ember'}${world && world.pulse ? ', switches on the beat' : ''}`);
 }
 
-function applySkin() {
-  save.skin = resolveSkin(save.skin, points());
-  const look = skinStyle(save.skin);
-  R.skin = look;
-  if (wd.player) wd.player.renderer.skin = look;
+// Equipped look + theme on every renderer (main, tutorial, shop preview) and the UI colours.
+function applyLook() {
+  const look = lookFor(save.shop.equip);
+  for (const r of [R, ob.player && ob.player.renderer, shopUI.player && shopUI.player.renderer]) {
+    if (!r) continue;
+    r.setLook(look);
+    r.setTheme(look.theme);
+  }
+  applyThemeCss(look.theme);
+}
+function applyThemeCss(id) {
+  const th = THEMES[id] || THEMES.dusk;
+  const root = document.documentElement.style;
+  root.setProperty('--glut', th.css.glut);
+  root.setProperty('--frost', th.css.frost);
+}
+
+const num = new Intl.NumberFormat('en-US');
+const calm = () => settings.reducedFx || matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Counts a number up or down in place; a newer tween on the same element cancels the older one.
+function tween(el, from, to, ms) {
+  const token = {};
+  el._tween = token;
+  if (calm() || from === to) { el.textContent = num.format(to); return; }
+  const t0 = performance.now();
+  const tick = (now) => {
+    if (el._tween !== token) return;
+    const k = Math.min(1, (now - t0) / ms);
+    el.textContent = num.format(Math.round(from + (to - from) * (1 - (1 - k) ** 3)));
+    if (k < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function updateWallet(from) {
+  const w = save.shop.wallet;
+  tween($('#titleWalletVal'), from ?? w, w, 700);
+  $('#btnShop').setAttribute('aria-label', `Shop, ${num.format(w)} shards`);
 }
 
 // ---------- levels ----------
@@ -207,13 +269,23 @@ function finishLevel() {
   const prev = save.best[i];
   const isBest = !prev || t < prev.time;
   const starsBefore = starsOf(i);
-  const pointsBefore = points();
   save.best[i] = {
     time: isBest ? t : prev.time,
     shards: Math.max(prev ? prev.shards : 0, world.collected),
     deathless: (prev && prev.deathless) || world.deaths === 0,
   };
   save.unlocked = Math.max(save.unlocked, Math.min(i + 1, LEVELS.length - 1));
+  const pay = earnings({
+    levelIndex: i,
+    shards: world.collected,
+    firstClear: !prev,
+    newStars: Math.max(0, starsOf(i).count - starsBefore.count),
+    newBest: isBest && !!prev,
+    deathless: world.deaths === 0,
+    allShards: world.shards.length > 0 && world.collected === world.shards.length,
+  });
+  const walletBefore = save.shop.wallet;
+  save.shop = deposit(save.shop, pay.total);
   writeSave();
   const hash = levelHash(LEVELS[i]);
   if (isBest || !ghosts[i] || ghosts[i].hash !== hash) { // a changed level layout invalidates the old ghost
@@ -227,13 +299,112 @@ function finishLevel() {
   $('#stDeaths').textContent = String(world.deaths);
   $('#bestBadge').hidden = !(isBest && prev);
   renderStars($('#stStars'), i, starsBefore);
-  const unlocked = newlyUnlocked(pointsBefore, points());
-  $('#unlockNote').hidden = !unlocked.length;
-  $('#unlockText').textContent = unlocked.length ? `New look unlocked: ${unlocked.join(', ')}. Try it in the Wardrobe.` : '';
-  applySkin();
+  updateWallet();
   $('#btnNext').textContent = i === LEVELS.length - 1 ? 'See your results' : 'Next level';
   state = 'complete';
   show('complete');
+  showEarnings(pay, walletBefore);
+}
+
+// ---------- earnings on the level-complete screen ----------
+let earnRun = 0;
+function showEarnings(pay, before) {
+  const run = ++earnRun;
+  const after = save.shop.wallet;
+  const lineEls = pay.lines.map((l) => {
+    const li = document.createElement('li');
+    const label = document.createElement('span');
+    label.textContent = l.label;
+    const amt = document.createElement('span');
+    amt.className = 'el-amt';
+    amt.append('+', Object.assign(document.createElement('b'), { textContent: '0' }));
+    li.append(label, amt);
+    return li;
+  });
+  $('#earnLines').replaceChildren(...lineEls);
+  const totalEl = $('#earnTotal'), walletEl = $('#earnWallet');
+  $('#earn').classList.remove('is-done');
+  const goal = goalItem(save.shop);
+  setGoalUI('earn', goal, before);
+
+  // what this run brought within reach: the pinned goal first, else the priciest newly affordable item
+  const pinned = save.shop.goal ? itemById(save.shop.goal) : null;
+  const reach = CATALOG.filter((x) => !save.shop.owned.includes(x.id) && x.price > before && x.price <= after).sort((a, b) => b.price - a.price);
+  let note = '';
+  const label = (x) => `${x.name} (${SLOT_NAMES[x.slot].toLowerCase()})`;
+  if (pinned && pinned.price > before && pinned.price <= after) note = `Goal reached: ${label(pinned)} is ready in the Shop.`;
+  else if (reach.length) note = `Now in reach: ${label(reach[0])}${reach.length > 1 ? ` and ${reach.length - 1} more` : ''}. Visit the Shop.`;
+  $('#unlockText').textContent = note;
+  $('#unlockNote').hidden = !note;
+  $('#unlockNote').classList.add('is-waiting'); // space is reserved now, the note fades in once the count-up ends
+  $('#earnSummary').textContent = '';
+  const summary = `Earned ${num.format(pay.total)} shards: ${pay.lines.map((l) => `${l.label} ${l.amount}`).join(', ')}. Wallet ${num.format(after)} shards.${goal ? ` Goal ${label(goal)}: ${num.format(Math.min(after, goal.price))} of ${num.format(goal.price)}.` : ''}`;
+  setTimeout(() => { $('#earnSummary').textContent = summary; }, 120); // live regions only announce changes after they are shown
+
+  const finish = () => {
+    if (run !== earnRun) return;
+    tween(walletEl, before, after, 700);
+    setGoalUI('earn', goal, after);
+    $('#earn').classList.add('is-done');
+    $('#unlockNote').classList.remove('is-waiting');
+  };
+  if (calm()) {
+    lineEls.forEach((li, k) => { li.classList.add('is-in'); li.querySelector('b').textContent = num.format(pay.lines[k].amount); });
+    tween(totalEl, pay.total, pay.total, 0);
+    tween(walletEl, before, before, 0);
+    finish();
+    return;
+  }
+  tween(totalEl, 0, 0, 0);
+  tween(walletEl, before, before, 0);
+  let k = 0, total = 0;
+  const nextLine = () => {
+    if (run !== earnRun || state !== 'complete') return;
+    if (k >= lineEls.length) { finish(); S.play('checkpoint'); return; }
+    const amount = pay.lines[k].amount;
+    lineEls[k].classList.add('is-in');
+    tween(lineEls[k].querySelector('b'), 0, amount, 420);
+    tween(totalEl, total, total + amount, 420);
+    S.play('collect', { n: k + 1 });
+    total += amount;
+    k++;
+    setTimeout(nextLine, 360);
+  };
+  setTimeout(nextLine, 420);
+}
+
+// Goal progress (shop header and level-complete screen share the markup: #{prefix}Goal...).
+function setGoalUI(prefix, item, wallet) {
+  const box = $(`#${prefix}Goal`);
+  const meter = $(`#${prefix}GoalMeter`);
+  const pinned = item && save.shop.goal === item.id;
+  box.classList.toggle('is-empty', !item);
+  if (!item) {
+    box.classList.remove('is-ready');
+    delete box.dataset.tier;
+    const all = CATALOG.every((x) => save.shop.owned.includes(x.id));
+    $(`#${prefix}GoalKicker`).textContent = all ? 'Collection' : 'Goal';
+    $(`#${prefix}GoalName`).textContent = all ? 'Every item is yours' : 'You can afford everything left';
+    $(`#${prefix}GoalNum`).textContent = '';
+    meter.hidden = true;
+    return;
+  }
+  meter.hidden = false;
+  const have = Math.min(wallet, item.price);
+  const ready = wallet >= item.price;
+  box.classList.toggle('is-ready', ready);
+  box.dataset.tier = item.tier;
+  $(`#${prefix}GoalKicker`).textContent = pinned ? 'Goal' : 'Next goal';
+  const name = $(`#${prefix}GoalName`);
+  name.textContent = item.name;
+  name.append(Object.assign(document.createElement('span'), { className: 'goal-slot', textContent: SLOT_NAMES[item.slot] }));
+  $(`#${prefix}GoalNum`).textContent = ready ? 'Ready to buy' : `${num.format(have)} / ${num.format(item.price)}`;
+  meter.style.setProperty('--p', String(item.price ? have / item.price : 1));
+  if (meter.getAttribute('role') === 'progressbar') {
+    meter.setAttribute('aria-valuemax', String(item.price));
+    meter.setAttribute('aria-valuenow', String(have));
+    meter.setAttribute('aria-valuetext', `${num.format(have)} of ${num.format(item.price)} shards`);
+  }
 }
 
 function renderStars(el, i, before) {
@@ -254,21 +425,13 @@ function renderStars(el, i, before) {
   el.setAttribute('aria-label', `${now.count} of 3 stars: ${items.filter(([k]) => now[k]).map(([, t]) => t).join(', ') || 'none yet'}`);
 }
 
-function newlyUnlocked(before, after) {
-  const names = [];
-  for (const [part, list] of Object.entries(SKINS)) {
-    for (const item of list) if (item.need > before && item.need <= after) names.push(`${item.name} ${part === 'hat' ? '' : part}`.trim());
-  }
-  return names;
-}
-
 function next() {
   const i = world.index;
   if (i === LEVELS.length - 1) {
     const total = LEVELS.reduce((s, _, k) => s + (save.best[k] ? save.best[k].time : 0), 0);
     const stars = LEVELS.reduce((s, _, k) => s + starsOf(k).count, 0);
     $('#fnTime').textContent = fmt(total);
-    $('#fnShards').textContent = `${points()}/${totalShards}`;
+    $('#fnShards').textContent = `${foundShards(save.best)}/${totalShards}`;
     $('#fnStars').textContent = `${stars}/${LEVELS.length * 3}`;
     state = 'finale';
     show('finale');
@@ -286,11 +449,12 @@ function toggleMute() {
 // ---------- settings ----------
 function applySettings() {
   S.apply(settings);
-  for (const r of [R, ob.player && ob.player.renderer, wd.player && wd.player.renderer]) {
+  for (const r of [R, ob.player && ob.player.renderer, shopUI.player && shopUI.player.renderer]) {
     if (!r) continue;
     r.shakeOn = settings.shake;
-    r.reduced = settings.reducedFx;
+    r.reduced = calm();
   }
+  document.documentElement.classList.toggle('reduced-fx', settings.reducedFx);
   $('#hudTimeStat').hidden = !settings.showTimer;
   for (const id of ['#btnMute', '#btnMuteHud']) {
     const b = $(id);
@@ -493,7 +657,7 @@ function openOnboarding(replay = false) {
   state = 'onboarding';
   show('onboarding');
   if (!ob.player) ob.player = new DemoPlayer($('#obCanvas'));
-  ob.player.renderer.skin = R.skin;
+  applyLook();
   applySettings();
   ob.player.resize();
   const dots = $('#obDots');
@@ -563,67 +727,340 @@ function updateOnboarding(dt) {
   for (const k of $('#obKeys').children) k.classList.toggle('is-pressed', on.has(k.dataset.act));
 }
 
-// ---------- wardrobe ----------
-const wd = { player: null };
-const PART_TARGET = { body: '#wdBody', scarf: '#wdScarf', hat: '#wdHat' };
-const HAT_ICON = { none: 'ph-x', antenna: 'ph-broadcast', horns: 'ph-flame', halo: 'ph-circle-notch', crown: 'ph-crown', lantern: 'ph-lightbulb', wings: 'ph-feather' };
+// ---------- shop ----------
+const shopUI = { player: null, tab: 'body', pending: null, pendingAt: 0, preview: null, lastPad: {} };
+const SLOT_ICON = { body: 'ph-person-simple', scarf: 'ph-wind', hat: 'ph-crown-simple', trail: 'ph-shooting-star', death: 'ph-skull', theme: 'ph-palette' };
+const ART_ICON = {
+  'hat.none': 'ph-x', 'trail.none': 'ph-x', 'hat.antenna': 'ph-broadcast', 'hat.horns': 'ph-flame', 'hat.halo': 'ph-circle-notch', 'hat.lantern': 'ph-lightbulb',
+  'hat.crown': 'ph-crown', 'hat.wings': 'ph-feather', 'hat.orbit': 'ph-planet',
+  'death.classic': 'ph-skull', 'death.confetti': 'ph-confetti', 'death.shatter': 'ph-diamond', 'death.blackhole': 'ph-spiral', 'death.fireworks': 'ph-sparkle',
+};
+// Preview scene for death effects: run straight into a spike pair, respawn, repeat.
+// The player dies at 0.69 s and every 1.25 s after that; a 3.75 s loop keeps that rhythm seamless.
+const DEATH_DEMO = {
+  id: 'shop-death',
+  level: build({ name: 'shop-death', w: 24, h: 9, seed: 21 }, ({ ground, put }) => {
+    ground(0, 23, 7);
+    put(3, 6, 'P');
+    put(7, 6, '^'); put(8, 6, '^');
+  }),
+  duration: 5,
+  hold: [[0.2, 3.75, 'right']],
+  tap: [],
+};
+const owns = (id) => save.shop.owned.includes(id);
+const shardGlyph = () => Object.assign(document.createElement('i'), { className: 'shard-glyph' });
 
-function openWardrobe() {
+function openShop() {
   S.init();
-  state = 'wardrobe';
-  show('wardrobe');
-  if (!wd.player) wd.player = new DemoPlayer($('#wdCanvas'));
+  state = 'shop';
+  shopUI.pending = null;
+  shopUI.lastPad = { lb: true, rb: true }; // a bumper still held from play must not switch tabs
+  show('shop');
+  if (!shopUI.player) {
+    shopUI.player = new DemoPlayer($('#shopCanvas'), { viewH: 7 * T, minW: 240, center: true }); // closer than the tutorial: the look is the subject
+    // keeps scroll-padding in sync with the sticky preview on small screens (see styles.css)
+    new ResizeObserver(([e]) => $('#screenShop').style.setProperty('--preview-h', `${Math.round(e.borderBoxSize?.[0]?.blockSize ?? e.contentRect.height)}px`)).observe($('.shop-preview'));
+  }
   applySettings();
-  applySkin();
-  wd.player.resize();
-  wd.player.play(DEMOS[1]); // the mid-air switch scene shows the scarf and accessory in motion
-  buildWardrobe();
+  applyLook();
+  shopUI.player.resize();
+  buildShopTabs();
+  buildShopItems();
+  syncShop();
+  previewItem(null);
 }
 
-function buildWardrobe() {
-  const pts = points();
-  $('#wdPoints').innerHTML = '<i class="shard-glyph" aria-hidden="true"></i>';
-  $('#wdPoints').append(`${pts} / ${totalShards} shards`);
-  for (const [part, list] of Object.entries(SKINS)) {
-    const box = $(PART_TARGET[part]);
-    box.replaceChildren(...list.map((item) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'swatch';
-      const unlocked = pts >= item.need;
-      b.disabled = !unlocked;
-      b.setAttribute('aria-pressed', String(save.skin[part] === item.id));
-      const chip = document.createElement('span');
-      chip.className = 'chip';
-      chip.setAttribute('aria-hidden', 'true');
-      if (part === 'body') chip.style.background = item.color === 'prism' ? 'conic-gradient(#ff9fb8, #ffd36b, #a6dc8f, #7ef0ff, #a78bfa, #ff9fb8)' : item.color;
-      else if (part === 'scarf') {
-        chip.style.background = item.color === null ? 'linear-gradient(90deg, var(--glut) 50%, var(--frost) 50%)'
-          : item.color === 'aurora' ? 'repeating-linear-gradient(90deg, var(--glut) 0 5px, var(--frost) 5px 10px)'
-            : item.color === 'starlight' ? 'radial-gradient(circle, #fff6d6 30%, rgba(255,246,214,0.2) 70%)'
-              : item.color === 'comet' ? 'linear-gradient(90deg, #cdefff, rgba(205,239,255,0.15))' : item.color;
-      } else chip.innerHTML = `<i class="ph-bold ${HAT_ICON[item.id]}"></i>`;
-      b.append(chip, item.name);
-      if (!unlocked) {
-        const need = document.createElement('span');
-        need.className = 'need';
-        need.innerHTML = '<i class="ph-bold ph-lock-simple" aria-hidden="true"></i>';
-        need.append(`${item.need}`);
-        b.append(need);
-        b.setAttribute('aria-label', `${item.name}, locked, needs ${item.need} shards`);
-      }
-      b.addEventListener('click', () => {
-        save.skin = { ...save.skin, [part]: item.id };
-        applySkin();
-        writeSave();
-        S.play('ui');
-        buildWardrobe();
-        const again = [...$(PART_TARGET[part]).children][list.indexOf(item)];
-        if (again) again.focus();
-      });
-      return b;
-    }));
+function buildShopTabs() {
+  $('#shopTabs').replaceChildren(...SLOTS.map((slot) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'tab';
+    b.id = `tab-${slot}`;
+    b.dataset.slot = slot;
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-controls', 'shopPanel');
+    b.innerHTML = `<i class="ph-bold ${SLOT_ICON[slot]}" aria-hidden="true"></i>`;
+    const count = document.createElement('span');
+    count.className = 'tab-count';
+    b.append(SLOT_NAMES[slot], count);
+    b.addEventListener('click', () => selectTab(slot));
+    return b;
+  }));
+}
+
+function selectTab(slot, focus = false) {
+  if (shopUI.tab === slot) return;
+  shopUI.tab = slot;
+  shopUI.pending = null;
+  S.play('ui');
+  buildShopItems();
+  syncShop();
+  previewItem(null);
+  const tab = $(`#tab-${slot}`);
+  tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (focus) tab.focus();
+}
+
+function itemArt(item) {
+  const art = document.createElement('span');
+  const kind = item.style.kind;
+  art.className = `art art-s-${item.slot} art-k-${kind}`;
+  art.setAttribute('aria-hidden', 'true');
+  if (ART_ICON[item.id]) {
+    art.innerHTML = `<i class="ph-bold ${ART_ICON[item.id]}"></i>`;
+  } else if (item.slot === 'body') {
+    if (item.style.color) art.style.setProperty('--c', item.style.color);
+    art.style.setProperty('--v', item.style.visor);
+    if (item.style.outline) art.classList.add('art-outline');
+    art.innerHTML = '<span class="art-bod"><span class="art-visor"></span></span>';
+  } else if (item.slot === 'scarf') {
+    if (item.style.color) art.style.setProperty('--c', item.style.color);
+    art.innerHTML = '<span class="art-scarf"></span>';
+  } else if (item.slot === 'trail') {
+    art.innerHTML = '<span class="art-trail"><i></i><i></i><i></i><i></i><i></i></span>';
+  } else if (item.slot === 'theme') {
+    const th = THEMES[kind] || THEMES.dusk;
+    art.style.setProperty('--g', th.css.glut);
+    art.style.setProperty('--f', th.css.frost);
+    art.style.setProperty('--sky-g', th.ember.skyBot);
+    art.style.setProperty('--sky-f', th.frost.skyBot);
+    art.innerHTML = '<span class="art-theme"></span>';
   }
+  return art;
+}
+
+function buildShopItems() {
+  const slot = shopUI.tab;
+  const panel = $('#shopPanel');
+  panel.setAttribute('aria-labelledby', `tab-${slot}`);
+  panel.replaceChildren(...CATALOG.filter((x) => x.slot === slot).map((item, i) => {
+    const card = document.createElement('div');
+    card.className = `item tier-${item.tier}`;
+    card.dataset.id = item.id;
+    card.style.setProperty('--i', i);
+    card.setAttribute('role', 'group');
+    card.setAttribute('aria-label', `${item.name}, ${TIERS[item.tier]}`);
+    const name = document.createElement('p');
+    name.className = 'item-name';
+    name.textContent = item.name;
+    const meta = document.createElement('p');
+    meta.className = 'item-meta';
+    const tier = document.createElement('span');
+    tier.className = 'tier-badge';
+    tier.textContent = TIERS[item.tier];
+    const note = document.createElement('span');
+    note.className = 'item-note';
+    meta.append(tier, note);
+    const desc = document.createElement('span');
+    desc.className = 'sr-only';
+    desc.id = `desc-${item.id.replace('.', '-')}`;
+    desc.textContent = item.desc;
+    const act = document.createElement('button');
+    act.type = 'button';
+    act.className = 'buy-btn';
+    act.setAttribute('aria-describedby', desc.id);
+    act.addEventListener('click', () => itemAction(item));
+    act.addEventListener('keydown', (e) => { if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault(); }); // a held key must not buy
+    card.append(itemArt(item), name, meta, act, desc);
+    if (item.price > 0) {
+      const goal = document.createElement('button');
+      goal.type = 'button';
+      goal.className = 'goal-btn';
+      goal.innerHTML = '<i class="ph-bold ph-target" aria-hidden="true"></i>';
+      goal.addEventListener('click', () => toggleGoal(item));
+      card.append(goal);
+    }
+    card.addEventListener('pointerenter', () => previewItem(item.id));
+    card.addEventListener('pointerdown', () => previewItem(item.id)); // touch: a tap anywhere on the card tries it on
+    card.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') previewItem(focusedItemId()); });
+    return card;
+  }));
+}
+
+// Updates every card, the tabs and the header in place, so focus never jumps.
+function syncShop(walletFrom) {
+  const sh = save.shop;
+  for (const b of $('#shopTabs').children) {
+    const on = b.dataset.slot === shopUI.tab;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    const list = CATALOG.filter((x) => x.slot === b.dataset.slot);
+    b.querySelector('.tab-count').textContent = `${list.filter((x) => owns(x.id)).length}/${list.length}`;
+  }
+  for (const card of $('#shopPanel').children) {
+    const item = itemById(card.dataset.id);
+    const owned = owns(item.id);
+    const equipped = sh.equip[item.slot] === item.id;
+    const afford = sh.wallet >= item.price;
+    const pending = shopUI.pending === item.id;
+    const isGoal = sh.goal === item.id;
+    card.classList.toggle('is-owned', owned);
+    card.classList.toggle('is-equipped', equipped);
+    card.classList.toggle('is-short', !owned && !afford);
+    card.classList.toggle('is-goal', isGoal);
+    card.classList.toggle('is-pending', pending);
+    const note = card.querySelector('.item-note');
+    note.textContent = equipped ? 'Equipped' : owned ? 'Owned' : isGoal ? 'Goal' : afford ? '' : `${num.format(item.price - sh.wallet)} more`;
+    const act = card.querySelector('.buy-btn');
+    act.replaceChildren();
+    act.removeAttribute('aria-disabled');
+    if (equipped) {
+      act.innerHTML = '<i class="ph-bold ph-check" aria-hidden="true"></i>';
+      act.append('Equipped');
+      act.setAttribute('aria-disabled', 'true');
+      act.setAttribute('aria-label', `${item.name} is equipped`);
+    } else if (owned) {
+      act.textContent = 'Equip';
+      act.setAttribute('aria-label', `Equip ${item.name}`);
+    } else {
+      act.append(pending ? 'Confirm' : 'Buy', shardGlyph(), Object.assign(document.createElement('span'), { className: 'price', textContent: num.format(item.price) }));
+      if (!afford) act.setAttribute('aria-disabled', 'true');
+      act.setAttribute('aria-label', pending ? `Confirm: buy ${item.name} for ${num.format(item.price)} shards`
+        : afford ? `Buy ${item.name} for ${num.format(item.price)} shards`
+          : `${item.name} costs ${num.format(item.price)} shards, you need ${num.format(item.price - sh.wallet)} more`);
+    }
+    const goal = card.querySelector('.goal-btn');
+    if (goal) {
+      goal.hidden = owned;
+      goal.setAttribute('aria-pressed', String(isGoal));
+      goal.setAttribute('aria-label', isGoal ? `Remove ${item.name} as goal` : `Set ${item.name} as goal`);
+      goal.title = isGoal ? 'Remove goal' : 'Set goal';
+    }
+  }
+  tween($('#shopWalletVal'), walletFrom ?? sh.wallet, sh.wallet, 800);
+  setGoalUI('shop', goalItem(sh), sh.wallet);
+  updateWallet(walletFrom);
+}
+
+const cardFor = (id) => $('#shopPanel').querySelector(`.item[data-id="${id}"]`);
+function focusedItemId() {
+  const el = document.activeElement;
+  const card = el && el.closest && el.closest('#shopPanel .item');
+  return card && el.matches(':focus-visible') ? card.dataset.id : null;
+}
+
+// Try an item on in the preview (also unowned ones); null shows the equipped look.
+function previewItem(id) {
+  const item = id ? itemById(id) : null;
+  if (!shopUI.player) return;
+  shopUI.preview = item ? item.id : null;
+  const eq = save.shop.equip;
+  const look = lookFor(item ? { ...eq, [item.slot]: item.id } : eq);
+  const r = shopUI.player.renderer;
+  r.setLook(look);
+  r.setTheme(look.theme);
+  const demo = (item ? item.slot : shopUI.tab) === 'death' ? DEATH_DEMO : SHOWCASE;
+  if (shopUI.player.demo !== demo) shopUI.player.play(demo);
+  const shown = item || itemById(eq[shopUI.tab]);
+  const trying = !!item && eq[item.slot] !== item.id;
+  $('#tryTag').hidden = !trying;
+  $('#siTier').textContent = TIERS[shown.tier];
+  $('#siTier').dataset.tier = shown.tier;
+  $('#siSlot').textContent = trying ? SLOT_NAMES[shown.slot] : `Equipped ${SLOT_NAMES[shown.slot].toLowerCase()}`;
+  $('#siName').textContent = shown.name;
+  $('#siDesc').textContent = shown.desc;
+  $('#shopInfo').dataset.tier = shown.tier;
+}
+
+function cancelPending() {
+  if (!shopUI.pending) return;
+  shopUI.pending = null;
+  syncShop();
+}
+
+function shopSay(text) {
+  const el = $('#shopStatus');
+  el.textContent = '';
+  requestAnimationFrame(() => { el.textContent = text; });
+}
+
+function itemAction(item) {
+  const sh = save.shop;
+  if (owns(item.id)) {
+    if (sh.equip[item.slot] === item.id) return;
+    save.shop = equip(sh, item.id);
+    writeSave();
+    applyLook();
+    S.play('ui');
+    syncShop();
+    previewItem(item.id);
+    shopSay(`${item.name} equipped.`);
+    return;
+  }
+  if (sh.wallet < item.price) {
+    S.play('deny');
+    const card = cardFor(item.id);
+    card.classList.remove('is-denied');
+    void card.offsetWidth;
+    card.classList.add('is-denied');
+    shopSay(`You need ${num.format(item.price - sh.wallet)} more shards for ${item.name}. Clear levels to earn more.`);
+    return;
+  }
+  if (shopUI.pending !== item.id || performance.now() - shopUI.pendingAt < 350) { // a double-click must not skip the confirmation
+    if (shopUI.pending === item.id) return;
+    shopUI.pending = item.id;
+    shopUI.pendingAt = performance.now();
+    S.play('ui');
+    syncShop();
+    shopSay(`Select again to buy ${item.name} for ${num.format(item.price)} shards.`);
+    return;
+  }
+  const res = buy(sh, item.id);
+  shopUI.pending = null;
+  if (!res.ok) { syncShop(); return; }
+  save.shop = res.shop;
+  writeSave();
+  applyLook();
+  syncShop(sh.wallet);
+  previewItem(item.id);
+  celebrate(item);
+  shopSay(`${item.name} is yours and equipped. ${num.format(save.shop.wallet)} shards left.`);
+}
+
+function celebrate(item) {
+  S.play('win');
+  const card = cardFor(item.id);
+  const p = shopUI.player;
+  p.renderer.fx({ type: 'win', x: p.world.player.x + PHYS.W / 2, y: p.world.player.y + PHYS.H / 2 }, p.phaseT);
+  if (!card || calm()) return;
+  card.classList.remove('is-bought');
+  card.querySelector('.burst')?.remove();
+  void card.offsetWidth;
+  const burst = document.createElement('span');
+  burst.className = 'burst';
+  burst.setAttribute('aria-hidden', 'true');
+  for (let k = 0; k < 14; k++) {
+    const s = document.createElement('i');
+    s.style.setProperty('--a', `${(k / 14) * 360 + (k % 2) * 12}deg`);
+    s.style.setProperty('--d', `${64 + (k % 3) * 26}px`);
+    burst.append(s);
+  }
+  card.append(burst);
+  card.classList.add('is-bought');
+  setTimeout(() => { burst.remove(); card.classList.remove('is-bought'); }, 1400);
+  $('#shopWallet').classList.remove('is-spent');
+  void $('#shopWallet').offsetWidth;
+  $('#shopWallet').classList.add('is-spent');
+}
+
+function toggleGoal(item) {
+  const on = save.shop.goal === item.id;
+  save.shop = setGoal(save.shop, on ? null : item.id);
+  writeSave();
+  S.play('ui');
+  syncShop();
+  shopSay(on ? `${item.name} is no longer your goal.` : `${item.name} is your new goal.`);
+}
+
+// Gamepad bumpers switch tabs while the shop is open (LB = 4, RB = 5).
+function pollShopBumpers() {
+  const gp = navigator.getGamepads ? [...navigator.getGamepads()].find(Boolean) : null;
+  const now = { lb: !!(gp && gp.buttons[4] && gp.buttons[4].pressed), rb: !!(gp && gp.buttons[5] && gp.buttons[5].pressed) };
+  const i = SLOTS.indexOf(shopUI.tab);
+  if (now.lb && !shopUI.lastPad.lb) { document.body.classList.add('gp-nav'); selectTab(SLOTS[(i + SLOTS.length - 1) % SLOTS.length], true); }
+  if (now.rb && !shopUI.lastPad.rb) { document.body.classList.add('gp-nav'); selectTab(SLOTS[(i + 1) % SLOTS.length], true); }
+  shopUI.lastPad = now;
 }
 
 // ---------- events from the simulation ----------
@@ -680,7 +1117,8 @@ function updateHud() {
 function back() {
   if (state === 'play') pause();
   else if (state === 'pause') resume();
-  else if (state === 'select' || state === 'wardrobe') toTitle();
+  else if (state === 'shop' && shopUI.pending) cancelPending();
+  else if (state === 'select' || state === 'shop') toTitle();
   else if (state === 'settings') closeSettings();
   else if (state === 'onboarding') finishOnboarding(false);
 }
@@ -705,10 +1143,38 @@ function onMenu(dir) {
     cur.dispatchEvent(new Event('change', { bubbles: true }));
     return;
   }
+  if (state === 'shop' && i >= 0) {
+    // the shop is a grid: move to the nearest control in the pressed direction, tabs switch with left/right
+    if (cur.getAttribute('role') === 'tab' && (dir === 'left' || dir === 'right')) {
+      const k = SLOTS.indexOf(cur.dataset.slot);
+      selectTab(SLOTS[(k + (dir === 'right' ? 1 : SLOTS.length - 1)) % SLOTS.length], true);
+      return;
+    }
+    const target = nearestInDirection(items, cur, dir);
+    if (target) { target.focus(); target.scrollIntoView({ block: 'nearest' }); }
+    return;
+  }
   const delta = dir === 'up' || dir === 'left' ? -1 : 1;
   const nextIndex = i < 0 ? 0 : (i + delta + items.length) % items.length;
   items[nextIndex].focus();
   items[nextIndex].scrollIntoView({ block: 'nearest' });
+}
+
+function nearestInDirection(items, cur, dir) {
+  const a = cur.getBoundingClientRect();
+  const ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  let best = null, bestD = Infinity;
+  for (const el of items) {
+    if (el === cur) continue;
+    const b = el.getBoundingClientRect();
+    const dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
+    const along = dir === 'left' ? -dx : dir === 'right' ? dx : dir === 'up' ? -dy : dy;
+    const across = dir === 'left' || dir === 'right' ? Math.abs(dy) : Math.abs(dx);
+    if (along < 4) continue;
+    const d = along + across * 2.5;
+    if (d < bestD) { bestD = d; best = el; }
+  }
+  return best;
 }
 
 // ---------- loop ----------
@@ -747,8 +1213,9 @@ function step(now) {
     }
   } else if (state === 'onboarding') {
     updateOnboarding(dt);
-  } else if (state === 'wardrobe') {
-    wd.player.update(dt, time);
+  } else if (state === 'shop') {
+    shopUI.player.update(dt, time);
+    pollShopBumpers();
   }
   if (isAttract() && state !== 'onboarding') {
     attractSwap -= dt;
@@ -756,7 +1223,7 @@ function step(now) {
       attractSwap = 4.5;
       world.phase = 1 - world.phase;
       S.setPhase(world.phase);
-      if (state !== 'wardrobe') setAccent(world.phase);
+      if (state !== 'shop') setAccent(world.phase);
     }
   }
 
@@ -777,8 +1244,29 @@ function step(now) {
 // ---------- wiring ----------
 $('#btnPlay').addEventListener('click', () => { S.play('ui'); startLevel(nextUnplayed()); });
 $('#btnLevels').addEventListener('click', () => { S.play('ui'); openSelect(); });
-$('#btnWardrobe').addEventListener('click', () => { S.play('ui'); openWardrobe(); });
-$('#btnWardrobeBack').addEventListener('click', toTitle);
+$('#btnShop').addEventListener('click', () => { S.play('ui'); openShop(); });
+$('#btnShopBack').addEventListener('click', toTitle);
+$('#shopTabs').addEventListener('keydown', (e) => {
+  const k = SLOTS.indexOf(shopUI.tab);
+  const to = { ArrowRight: k + 1, ArrowLeft: k - 1, Home: 0, End: SLOTS.length - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  selectTab(SLOTS[(to + SLOTS.length) % SLOTS.length], true);
+});
+// focusing a card tries it on; leaving the grid restores the equipped look; any other action cancels a pending purchase
+$('#screenShop').addEventListener('focusin', (e) => {
+  if (e.target.id === 'shopPanel') return; // a click on a card's body focuses the panel; pointerdown already previews it
+  const card = e.target.closest('.item');
+  if (shopUI.pending && !(card && card.dataset.id === shopUI.pending && e.target.classList.contains('buy-btn'))) cancelPending();
+  previewItem(card ? card.dataset.id : null);
+});
+$('#screenShop').addEventListener('focusout', (e) => {
+  if (!e.relatedTarget || !$('#screenShop').contains(e.relatedTarget)) previewItem(null);
+});
+$('#screenShop').addEventListener('pointerdown', (e) => {
+  const card = e.target.closest('.item');
+  if (shopUI.pending && !(card && card.dataset.id === shopUI.pending && e.target.closest('.buy-btn'))) cancelPending();
+});
 $('#btnBack').addEventListener('click', toTitle);
 $('#btnResume').addEventListener('click', resume);
 $('#btnRestart').addEventListener('click', () => startLevel(world.index));
@@ -823,7 +1311,7 @@ for (const [k, input] of SWITCHES) {
     if (k === 'muted' && !settings.muted) S.play('ui');
   });
 }
-$('#resetText').textContent = `Delete all best times, stars, ghosts and the death map, and lock levels 2 to ${LEVELS.length} again? Unlocked looks lock again too. This cannot be undone.`;
+$('#resetText').textContent = `Delete all best times, stars, ghosts and the death map, and lock levels 2 to ${LEVELS.length} again? Your shards and every item you bought are removed too. This cannot be undone.`;
 $('#btnReset').addEventListener('click', () => {
   $('#btnReset').hidden = true;
   $('#resetDone').hidden = true;
@@ -836,13 +1324,14 @@ $('#btnResetNo').addEventListener('click', () => {
   $('#btnReset').focus();
 });
 $('#btnResetYes').addEventListener('click', () => {
-  save = { unlocked: 0, best: {}, skin: { ...DEFAULT_SKIN } };
+  save = { unlocked: 0, best: {}, shop: newShop() };
   ghosts = {};
   deaths = {};
   writeSave();
   writeJSON(GHOST_KEY, ghosts);
   writeJSON(DEATH_KEY, deaths);
-  applySkin();
+  applyLook();
+  updateWallet();
   updatePlayLabel();
   $('#resetConfirm').hidden = true;
   $('#btnReset').hidden = false;
@@ -851,6 +1340,7 @@ $('#btnResetYes').addEventListener('click', () => {
 });
 I.onPadPause = () => (state === 'play' ? pause() : state === 'pause' || state === 'settings' ? back() : null);
 I.onMenu = onMenu;
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', applySettings);
 
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
@@ -893,7 +1383,7 @@ addEventListener('resize', () => {
   R.resize();
   updateCamera(1, true);
   if (ob.player) ob.player.resize();
-  if (wd.player) wd.player.resize();
+  if (shopUI.player) shopUI.player.resize();
   updatePortraitHint();
 });
 document.addEventListener('visibilitychange', () => {
@@ -913,7 +1403,8 @@ window.__dusklight = {
 
 buildControls();
 applySettings();
-applySkin();
+applyLook();
+updateWallet();
 updatePlayLabel();
 setAccent(0);
 if (onboardingSeen()) show('title');

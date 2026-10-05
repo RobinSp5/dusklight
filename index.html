@@ -42,7 +42,7 @@
         <div class="actions">
           <button class="btn btn-primary" id="btnPlay" type="button"><i class="ph-bold ph-play" aria-hidden="true"></i><span id="btnPlayLabel">Play</span></button>
           <button class="btn" id="btnLevels" type="button">Select level</button>
-          <button class="btn" id="btnWardrobe" type="button"><i class="ph-bold ph-coat-hanger" aria-hidden="true"></i>Wardrobe</button>
+          <button class="btn btn-shop" id="btnShop" type="button"><i class="ph-bold ph-storefront" aria-hidden="true"></i>Shop<span class="wallet-chip" id="titleWallet"><i class="shard-glyph" aria-hidden="true"></i><span id="titleWalletVal">0</span></span></button>
           <button class="icon-btn icon-btn-lg" id="btnSettings" type="button" aria-label="Settings"><i class="ph-bold ph-gear-six" aria-hidden="true"></i></button>
           <button class="icon-btn icon-btn-lg" id="btnMute" type="button" aria-label="Mute sound"><i class="ph-bold ph-speaker-high" aria-hidden="true"></i></button>
         </div>
@@ -63,24 +63,39 @@
       </div>
     </section>
 
-    <section class="screen screen-select screen-wardrobe" id="screenWardrobe" aria-labelledby="wardrobeTitle" hidden>
-      <div class="select-wrap">
-        <div class="select-head">
-          <button class="icon-btn icon-btn-lg" id="btnWardrobeBack" type="button" aria-label="Back to title" data-autofocus><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
-          <h2 id="wardrobeTitle">Wardrobe</h2>
-          <p class="points" id="wdPoints" role="status"></p>
+    <section class="screen screen-select screen-shop" id="screenShop" aria-labelledby="shopTitle" hidden>
+      <div class="select-wrap shop-wrap">
+        <div class="select-head shop-head">
+          <button class="icon-btn icon-btn-lg" id="btnShopBack" type="button" aria-label="Back to title" data-autofocus><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
+          <h2 id="shopTitle">Shop</h2>
+          <p class="wallet" id="shopWallet"><i class="shard-glyph" aria-hidden="true"></i><span id="shopWalletVal">0</span><span class="sr-only"> shards</span></p>
         </div>
-        <div class="wardrobe-grid">
-          <div class="wd-preview">
-            <canvas id="wdCanvas" aria-hidden="true"></canvas>
-            <p class="set-note">New looks unlock as you collect shards. Nothing is spent.</p>
+        <div class="goal" id="shopGoal">
+          <p class="goal-text">
+            <span class="goal-kicker" id="shopGoalKicker">Goal</span>
+            <span class="goal-name" id="shopGoalName"></span>
+            <span class="goal-num" id="shopGoalNum"></span>
+          </p>
+          <div class="meter" id="shopGoalMeter" role="progressbar" aria-labelledby="shopGoalKicker shopGoalName" aria-valuemin="0"><span class="meter-fill"></span></div>
+        </div>
+        <div class="shop-grid">
+          <div class="shop-preview">
+            <div class="shop-stage">
+              <canvas id="shopCanvas" aria-hidden="true"></canvas>
+              <span class="try-tag" id="tryTag" hidden><i class="ph-bold ph-eye" aria-hidden="true"></i>Preview</span>
+            </div>
+            <div class="shop-info" id="shopInfo">
+              <p class="si-kicker"><span class="tier-badge" id="siTier"></span><span id="siSlot"></span></p>
+              <h3 class="si-name" id="siName"></h3>
+              <p class="si-desc" id="siDesc"></p>
+            </div>
           </div>
-          <div class="wd-parts">
-            <section class="set-group" aria-labelledby="wdBodyTitle"><h3 id="wdBodyTitle">Body</h3><div class="swatches" id="wdBody"></div></section>
-            <section class="set-group" aria-labelledby="wdScarfTitle"><h3 id="wdScarfTitle">Scarf</h3><div class="swatches" id="wdScarf"></div></section>
-            <section class="set-group" aria-labelledby="wdHatTitle"><h3 id="wdHatTitle">Accessory</h3><div class="swatches" id="wdHat"></div></section>
+          <div class="shop-main">
+            <div class="tabs" id="shopTabs" role="tablist" aria-label="Item types"></div>
+            <div class="items" id="shopPanel" role="tabpanel" tabindex="-1"></div>
           </div>
         </div>
+        <p class="sr-only" id="shopStatus" role="status"></p>
       </div>
     </section>
 
@@ -206,7 +221,7 @@
     </section>
 
     <section class="screen screen-modal" id="screenComplete" aria-labelledby="completeTitle" hidden>
-      <div class="panel panel-wide">
+      <div class="panel panel-wide panel-complete">
         <p class="badge" id="bestBadge" hidden>New best time</p>
         <h2 id="completeTitle">Level cleared</h2>
         <div class="stars-row" id="stStars" role="img" aria-label="Stars"></div>
@@ -215,6 +230,25 @@
           <div><span class="stat-label">Shards</span><span class="stat-val" id="stShards">0/0</span></div>
           <div><span class="stat-label">Deaths</span><span class="stat-val" id="stDeaths">0</span></div>
         </div>
+        <section class="earn" id="earn" aria-labelledby="earnTitle">
+          <div class="earn-head">
+            <h3 id="earnTitle">Shards earned</h3>
+            <p class="earn-total" aria-hidden="true">+<span id="earnTotal">0</span></p>
+          </div>
+          <ul class="earn-lines" id="earnLines" aria-hidden="true"></ul>
+          <div class="earn-foot" aria-hidden="true">
+            <p class="wallet wallet-sm"><i class="shard-glyph"></i><span id="earnWallet">0</span></p>
+            <div class="goal goal-compact" id="earnGoal">
+              <p class="goal-text">
+                <span class="goal-kicker" id="earnGoalKicker">Goal</span>
+                <span class="goal-name" id="earnGoalName"></span>
+                <span class="goal-num" id="earnGoalNum"></span>
+              </p>
+              <div class="meter" id="earnGoalMeter"><span class="meter-fill"></span></div>
+            </div>
+          </div>
+          <p class="sr-only" id="earnSummary" role="status"></p>
+        </section>
         <p class="unlock-note" id="unlockNote" hidden><i class="ph-bold ph-sparkle" aria-hidden="true"></i><span id="unlockText"></span></p>
         <div class="actions">
           <button class="btn btn-primary" id="btnNext" type="button" data-autofocus>Next level</button>
@@ -275,7 +309,9 @@
       "./src/levels-act3.js": "./src/levels-act3.js?v=__V__",
       "./src/levels-act4.js": "./src/levels-act4.js?v=__V__",
       "./src/levels-act5.js": "./src/levels-act5.js?v=__V__",
-      "./src/levels-act6.js": "./src/levels-act6.js?v=__V__"
+      "./src/levels-act6.js": "./src/levels-act6.js?v=__V__",
+      "./src/shop.js": "./src/shop.js?v=__V__",
+      "./src/cosmetics.js": "./src/cosmetics.js?v=__V__"
     }
   }
   </script>

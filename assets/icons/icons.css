@@ -111,3 +111,42 @@
 .ph-bold.ph-x:before {
   content: "\e4f6";
 }
+.ph-bold.ph-storefront:before {
+  content: "\e470";
+}
+.ph-bold.ph-eye:before {
+  content: "\e220";
+}
+.ph-bold.ph-target:before {
+  content: "\e47c";
+}
+.ph-bold.ph-check:before {
+  content: "\e182";
+}
+.ph-bold.ph-person-simple:before {
+  content: "\e72e";
+}
+.ph-bold.ph-wind:before {
+  content: "\e5d2";
+}
+.ph-bold.ph-crown-simple:before {
+  content: "\e616";
+}
+.ph-bold.ph-shooting-star:before {
+  content: "\ecfa";
+}
+.ph-bold.ph-palette:before {
+  content: "\e6c8";
+}
+.ph-bold.ph-planet:before {
+  content: "\e652";
+}
+.ph-bold.ph-confetti:before {
+  content: "\e81a";
+}
+.ph-bold.ph-diamond:before {
+  content: "\e1ec";
+}
+.ph-bold.ph-spiral:before {
+  content: "\e9fa";
+}

@@ -42,7 +42,8 @@ On first launch an animated tutorial shows each move as a live, scripted game sc
 
 - **Stars:** three per level: beat the par time, find every shard, finish without dying.
 - **Ghost:** after a new best time, a translucent replay of that run races you on your next attempt (toggle in Settings).
-- **Wardrobe:** collected shards unlock body colours, scarves and accessories. Nothing is spent.
+- **Shards are a currency:** every run pays out (shards collected, level cleared, first clear, new stars, new best time, no deaths, every shard). The level-complete screen counts it up and shows your progress towards a goal.
+- **Shop:** 42 cosmetics in six slots (body, scarf, accessory, trail, death effect, colour theme) and four tiers. Try anything on before you buy it, pin an item as your goal. The legendary items (Prism, Supernova, Phoenix, Orbit, Prism Ribbon, Neon Night, Gold & Void) are animated and take a few playthroughs to afford. No loot boxes, no randomness; colour cycles are smooth, without flashing.
 - **Death map:** the level select marks where you died most often. The in-game **Settings** page lists every control and has master, music and effects volume, mute, screen shake, reduced effects, a timer toggle and a progress reset.
 
 ## Levels
@@ -65,7 +66,9 @@ On first launch an animated tutorial shows each move as a live, scripted game sc
 - `src/render.js` – procedural parallax backdrop, world colour blend, particles, scarf physics
 - `src/audio.js` – synthesised effects and an ambient pad on separate music and effects buses
 - `src/settings.js` – persisted player settings
-- `src/progress.js` – stars, ghost encoding, skins and the death log (pure, unit-tested)
+- `src/progress.js` – stars, ghost encoding and the death log (pure, unit-tested)
+- `src/shop.js` – shop catalog, earnings, buying, goals, save migration (pure, unit-tested)
+- `src/cosmetics.js` – colour themes and the drawing of bodies, scarves, accessories, trails and death effects
 - `src/demo-player.js` – plays scripted demo scenes for the tutorial and the wardrobe preview
 - `src/demos.js` – scripted tutorial scenes running on the real simulation
 - `src/main.js` – state machine, UI, camera, save data (localStorage)

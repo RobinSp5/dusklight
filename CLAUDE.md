@@ -29,7 +29,9 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 - `src/level-kit.js` – Tile-Legende + Builder-API. `src/levels.js` = Akte I–II (Level 1–8) + Zusammenbau, Akte III–VI in `src/levels-act3.js` … `levels-act6.js`. Schilder-Tokens wie `{jump}` werden zur aktuellen Taste/Touch-Taste.
 - Mechaniken: Phasen-Tiles `A`/`B`, Dornen `^ v a b`, Feder `S`, Einweg `=`, Bröckelstein `x`, Dash-Orb `d`, Puls-Level (`pulse: s`, Welt wechselt im Takt, manueller Wechsel aus).
 - `src/render.js` – Renderer (Parallax, Phasen-Blend, Partikel, Skins, Ghost). `new Renderer(canvas, { fit, viewH, minW })` für kleine Canvases.
-- `src/progress.js` – Sterne/Par, Ghost-RLE, Skins, Todes-Log, Sanitizer für localStorage (rein, getestet).
+- `src/progress.js` – Sterne/Par, Ghost-RLE, Todes-Log, Sanitizer für localStorage (rein, getestet).
+- `src/shop.js` – Splitter-Währung: Katalog (42 Items, 6 Slots, 4 Tiers), `earnings(run)`, Kauf/Ausrüsten/Ziel, Sanitize, Migration alter Skins (rein, `tests/shop.mjs`). Gespeichert unter eigenem Key `dusklight.shop.v1`.
+- `src/cosmetics.js` – Farbthemen (`THEMES`) und das Zeichnen von Körpern, Schals, Hüten, Spuren, Todeseffekten; `renderer.setLook()`/`setTheme()`.
 - `src/input.js` – frei belegbare Tasten (`normalizeBindings`/`rebind`: keine Taste doppelt, Esc pausiert immer), Gamepad inkl. Menünavigation.
 - `src/demos.js` + `src/demo-player.js` – geskriptete Szenen für Tutorial und Garderobe.
 - `src/main.js` – Zustandsautomat, UI, Kamera, Speicherstand.
@@ -45,6 +47,7 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 6. **localStorage-Daten** immer validieren (siehe Sanitizer in `progress.js`); der Spiel-Loop läuft in `try/finally`.
 7. UI-Texte sind **Englisch**, Zahlenformat `en-US`. Keine Em-Dashes im sichtbaren Text.
 8. `prefers-reduced-motion`/„Reduced effects“ respektieren, sichtbare Fokus-Zustände, `aria-label` für Icon-Buttons.
+9. **Shop/Kosmetik:** keine Lootboxen/kein Zufall beim Kaufen; Farbanimationen nur als weiche Farbton-Rotation ohne Helligkeitsblitzen (Fotosensibilität), Theme-Akzente ≥ 4,5:1 Kontrast zu #0b0a10. Neue Items: Katalog in `shop.js` + Darstellung in `cosmetics.js` + Test in `tests/shop.mjs`.
 
 ## Verifikation vor „fertig“
 

@@ -1,10 +1,10 @@
-// Stars, ghost encoding (incl. a deterministic replay through the real World), skins, death log.
+// Stars, ghost encoding (incl. a deterministic replay through the real World), death log.
 import { LEVELS } from '../src/levels.js';
 import { World, STEP } from '../src/world.js';
 import { DEMOS, demoInput } from '../src/demos.js';
 import {
   PAR, starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash,
-  SKINS, resolveSkin, shardPoints, addDeath, DEATH_CAP, sanitizeGhosts, sanitizeDeaths,
+  addDeath, DEATH_CAP, sanitizeGhosts, sanitizeDeaths,
 } from '../src/progress.js';
 
 let failed = 0;
@@ -32,15 +32,6 @@ for (const d of DEMOS) {
 }
 check('mask roundtrip', [0, 1, 5, 63].every((m) => inputToMask(maskToInput(m)) === m));
 check('level hash stable + distinct', levelHash(LEVELS[0]) === levelHash(LEVELS[0]) && new Set(LEVELS.map(levelHash)).size === LEVELS.length);
-
-// skins
-const total = LEVELS.reduce((n, l) => n + l.rows.join('').split('o').length - 1, 0);
-const maxNeed = Math.max(...Object.values(SKINS).flat().map((x) => x.need));
-check('every skin is reachable', maxNeed <= total, `max need ${maxNeed} of ${total} shards`);
-check('defaults are free', Object.values(SKINS).every((list) => list[0].need === 0));
-check('locked choice falls back', resolveSkin({ body: 'void', scarf: 'lime', hat: 'crown' }, 14).body === 'paper' && resolveSkin({ scarf: 'lime' }, 14).scarf === 'lime');
-check('unknown ids fall back', resolveSkin({ body: 'nope' }, 99).body === 'paper');
-check('shard points', shardPoints({ 0: { shards: 3 }, 2: { shards: 5 }, 3: {} }) === 8);
 
 // death log cap
 const log = {};

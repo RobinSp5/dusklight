@@ -1,14 +1,18 @@
 // Canvas renderer: parallax backdrop, tiles, entities, player, particles, post effects.
 import { TILE as T } from './levels.js';
 import { PHYS } from './world.js';
+import {
+  THEMES, normalizeLook, lookFromSkin, bodyRGB, bodyFill, drawAura, scarfLength, drawScarf, scarfParticles,
+  bodyParticles, drawHat, trailParticles, drawRibbon, deathFx, drawParticleShape, drawHole,
+} from './cosmetics.js';
 
 export const VIEW_H = 544;
 
-export const PAL = [
-  { skyTop: '#1c0c17', skyBot: '#6e2b2b', far: '#4a1b2a', mid: '#2f1221', near: '#1a0a13', stone: '#1b1219', accent: '#ff8a4c', accent2: '#ffd38a', disc: '#ffb26b' },
-  { skyTop: '#050a18', skyBot: '#1b4668', far: '#173456', mid: '#0f2442', near: '#08142b', stone: '#0e1524', accent: '#5ee0ff', accent2: '#d4f7ff', disc: '#e6f6ff' },
-];
+// Default (Dusk) palette: [Ember, Frost]. Each renderer keeps its own copy in this.P (see setTheme).
+export const PAL = [THEMES.dusk.ember, THEMES.dusk.frost];
 const BODY = '#f3efe7';
+// Minimap colours follow the theme of the main (full-window) renderer.
+let minimapTheme = 'dusk';
 
 const rgbCache = new Map();
 function rgb(hex) {
@@ -22,7 +26,6 @@ function rgb(hex) {
 }
 const mixRGB = (a, b, t) => { const A = rgb(a), B = rgb(b); return [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t]; };
 const css = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
-const pal = (key, t) => mixRGB(PAL[0][key], PAL[1][key], t);
 
 function mulberry32(a) {
   return () => {
@@ -66,15 +69,19 @@ export class Renderer {
     this.scarf = null;
     this.blinkT = 2.5;
     this.blink = 0;
-    this.glow = {};
-    for (const k of ['accent', 'accent2', 'disc']) this.glow[k] = [makeGlow(PAL[0][k]), makeGlow(PAL[1][k])];
-    this.glow.body = [makeGlow(BODY), makeGlow(BODY)];
+    this.glow = { body: [makeGlow(BODY), makeGlow(BODY)] };
+    this.theme = null;
+    this.setTheme('dusk');
     this.bottomPad = 0; // reserved space under the world for touch controls
     this.shakeOn = true;
     this.labelFor = (action) => action; // set by main.js: current key label or touch button symbol
     this.lastCam = { x: 0, y: 0 };
-    // player look; set from the wardrobe (see progress.js skinStyle)
-    this.skin = { body: BODY, visor: '#16131c', outline: false, scarf: null, hat: 'none' };
+    this.look = normalizeLook(null); // player look, see setLook (renderer.skin is the old alias)
+    this.ribbon = []; // prism trail points
+    this.trickles = {}; // fractional particle counts of continuous emitters
+    this.timers = []; // delayed effects (fireworks)
+    this.playerShown = false;
+    this.lastT = 0;
     this.time = 0;
     this.resize();
   }
@@ -89,6 +96,44 @@ export class Renderer {
     this.vw = w / this.scale;
     this.vh = h / this.scale;
     this.vignette = null;
+  }
+
+  // ---------- cosmetics ----------
+  // look: see shop.js lookFor(). look.theme is ignored here, the theme is applied with setTheme().
+  setLook(look) {
+    const prev = this.look;
+    this.look = normalizeLook(look);
+    if (prev && prev.trail !== this.look.trail) { this.ribbon.length = 0; this.after = this.after.filter((a) => !a.echo); }
+  }
+
+  // Compatibility alias for the pre-shop skin object ({ body, visor, outline, scarf, hat }).
+  get skin() { return this.look; }
+  set skin(s) { this.setLook(s && typeof s.body === 'object' ? s : lookFromSkin(s)); }
+
+  // Swaps the palette used everywhere (sky, stone, accents, glow sprites, minimap of the main renderer).
+  setTheme(id) {
+    const th = THEMES[id] ? id : 'dusk';
+    if (th === this.theme) return;
+    this.theme = th;
+    this.P = [THEMES[th].ember, THEMES[th].frost];
+    for (const k of ['accent', 'accent2', 'disc']) this.glow[k] = [makeGlow(this.P[0][k]), makeGlow(this.P[1][k])];
+    if (!this.fit) minimapTheme = th;
+  }
+
+  pal(key, t) { return mixRGB(this.P[0][key], this.P[1][key], t); }
+  rgbOf(hex) { return rgb(hex); }
+  css(c, a = 1) { return css(c, a); }
+
+  // Continuous emitter: calls fn about `rate` times per second.
+  trickle(key, dt, rate, fn) {
+    let a = (this.trickles[key] || 0) + dt * rate;
+    for (; a >= 1; a--) fn();
+    this.trickles[key] = a;
+  }
+
+  later(delay, fn) {
+    if (delay <= 0) fn();
+    else this.timers.push({ t: delay, fn });
   }
 
   setBottomPad(px) {
@@ -136,6 +181,8 @@ export class Renderer {
     this.particles.length = 0;
     this.rings.length = 0;
     this.after.length = 0;
+    this.ribbon.length = 0;
+    this.timers.length = 0;
     this.scarf = null;
   }
 
@@ -150,6 +197,7 @@ export class Renderer {
         x: o.x + (Math.random() - 0.5) * (o.jx ?? 0), y: o.y + (Math.random() - 0.5) * (o.jy ?? 0),
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life, max: life,
         size: (o.size ?? 3) * (0.6 + Math.random() * 0.8), color: o.color, g: o.g ?? 0, drag: o.drag ?? 2, glow: !!o.glow,
+        shape: null, rot: 0, vr: 0, pull: null,
       });
     }
   }
@@ -157,7 +205,7 @@ export class Renderer {
   addShake(v) { if (this.shakeOn && !this.reduced) this.shake = Math.max(this.shake, v); }
 
   fx(e, t) {
-    const acc = css(pal('accent', t)), acc2 = css(pal('accent2', t));
+    const acc = css(this.pal('accent', t)), acc2 = css(this.pal('accent2', t));
     switch (e.type) {
       case 'jump':
         this.sq = { x: 0.72, y: 1.32 };
@@ -177,9 +225,9 @@ export class Renderer {
         this.addShake(2.5);
         break;
       case 'swap':
-        this.rings.push({ x: e.x, y: e.y, r: 6, life: 0.55, max: 0.55, color: e.phase ? PAL[1].accent : PAL[0].accent, w: 3 });
+        this.rings.push({ x: e.x, y: e.y, r: 6, life: 0.55, max: 0.55, color: e.phase ? this.P[1].accent : this.P[0].accent, w: 3 });
         this.flash = 1;
-        this.emit(16, { x: e.x, y: e.y, speed: 170, color: css(rgb(e.phase ? PAL[1].accent2 : PAL[0].accent2)), size: 2.2, life: 0.55, glow: true });
+        this.emit(16, { x: e.x, y: e.y, speed: 170, color: css(rgb(e.phase ? this.P[1].accent2 : this.P[0].accent2)), size: 2.2, life: 0.55, glow: true });
         break;
       case 'deny':
         this.addShake(4);
@@ -187,25 +235,24 @@ export class Renderer {
         break;
       case 'collect':
         this.emit(16, { x: e.x, y: e.y, speed: 160, color: acc2, size: 2.4, life: 0.6, glow: true, drag: 3 });
-        this.rings.push({ x: e.x, y: e.y, r: 4, life: 0.4, max: 0.4, color: PAL[t > 0.5 ? 1 : 0].accent2, w: 2, grow: 30 });
+        this.rings.push({ x: e.x, y: e.y, r: 4, life: 0.4, max: 0.4, color: this.P[t > 0.5 ? 1 : 0].accent2, w: 2, grow: 30 });
         break;
       case 'checkpoint':
         this.emit(24, { x: e.x, y: e.y - 44, angle: -Math.PI / 2, spread: 1.4, speed: 200, color: acc2, size: 2.6, g: 160, life: 0.9, glow: true });
-        this.rings.push({ x: e.x, y: e.y - 44, r: 6, life: 0.6, max: 0.6, color: PAL[t > 0.5 ? 1 : 0].accent, w: 2, grow: 60 });
+        this.rings.push({ x: e.x, y: e.y - 44, r: 6, life: 0.6, max: 0.6, color: this.P[t > 0.5 ? 1 : 0].accent, w: 2, grow: 60 });
         break;
       case 'spring':
         this.sq = { x: 0.65, y: 1.45 };
         this.emit(12, { x: e.x, y: e.y - 8, angle: -Math.PI / 2, spread: 1.6, speed: 180, color: acc2, size: 2.4, g: 300, life: 0.5, glow: true });
         break;
       case 'die':
-        this.addShake(10);
-        this.flash = 0.7;
-        this.emit(20, { x: e.x, y: e.y, speed: 300, color: this.skin.body, size: 4, g: 600, life: 0.9, drag: 1 });
-        this.emit(16, { x: e.x, y: e.y, speed: 220, color: acc, size: 2.6, life: 0.7, glow: true });
+        this.ribbon.length = 0;
+        deathFx(this, this.look.death, e, t, css(bodyRGB(this, this.look.body, t)));
         break;
       case 'respawn':
         this.scarf = null;
-        this.rings.push({ x: e.x, y: e.y, r: 46, life: 0.4, max: 0.4, color: PAL[t > 0.5 ? 1 : 0].accent2, w: 2, shrink: true });
+        this.ribbon.length = 0;
+        this.rings.push({ x: e.x, y: e.y, r: 46, life: 0.4, max: 0.4, color: this.P[t > 0.5 ? 1 : 0].accent2, w: 2, shrink: true });
         this.sq = { x: 0.6, y: 1.4 };
         break;
       case 'crumble':
@@ -225,7 +272,7 @@ export class Renderer {
       case 'win':
         this.flash = 1;
         this.emit(40, { x: e.x, y: e.y, speed: 280, color: acc2, size: 3, life: 1.1, glow: true, drag: 1.5 });
-        this.rings.push({ x: e.x, y: e.y, r: 10, life: 0.9, max: 0.9, color: PAL[t > 0.5 ? 1 : 0].accent, w: 3 });
+        this.rings.push({ x: e.x, y: e.y, r: 10, life: 0.9, max: 0.9, color: this.P[t > 0.5 ? 1 : 0].accent, w: 3 });
         break;
       default:
     }
@@ -244,8 +291,25 @@ export class Renderer {
       p.vx -= p.vx * p.drag * dt;
       p.vy -= p.vy * p.drag * dt;
       p.vy += p.g * dt;
+      if (p.pull) {
+        // black hole: accelerate towards the centre, vanish when swallowed
+        const dx = p.pull.x - p.x, dy = p.pull.y - p.y, d = Math.hypot(dx, dy);
+        if (d < 3) { this.particles.splice(i, 1); continue; }
+        p.vx += (dx / d) * p.pull.k * dt;
+        p.vy += (dy / d) * p.pull.k * dt;
+      }
       p.x += p.vx * dt;
       p.y += p.vy * dt;
+      p.rot += p.vr * dt;
+    }
+    for (let i = this.timers.length - 1; i >= 0; i--) {
+      const tm = this.timers[i];
+      tm.t -= dt;
+      if (tm.t <= 0) { this.timers.splice(i, 1); tm.fn(); }
+    }
+    for (let i = this.ribbon.length - 1; i >= 0; i--) {
+      this.ribbon[i].life -= dt;
+      if (this.ribbon[i].life <= 0) this.ribbon.splice(i, 1);
     }
     for (let i = this.rings.length - 1; i >= 0; i--) {
       const r = this.rings[i];
@@ -262,19 +326,26 @@ export class Renderer {
 
     if (!world) return;
     const p = world.player;
-    if (p.dashT > 0 && p.alive) this.after.push({ x: p.x, y: p.y, f: p.facing, life: 0.22 });
+    if (p.dashT > 0 && p.alive) this.after.push({ x: p.x, y: p.y, f: p.facing, life: 0.22, max: 0.22 });
     if (p.alive && !world.won && Math.random() < dt * 2 && world.exit) {
       // portal pulls a few motes inwards
       const a = Math.random() * 6.28;
       this.particles.push({ x: world.exit.x + Math.cos(a) * 50, y: world.exit.y - 18 + Math.sin(a) * 50, vx: -Math.cos(a) * 60, vy: -Math.sin(a) * 60, life: 0.8, max: 0.8, size: 2, color: '#ffffff', g: 0, drag: 0, glow: true });
     }
     this.updateScarf(dt, p, time);
+    // cosmetic emitters only run while the player is actually drawn (not in the attract backdrop)
+    if (this.playerShown && p.alive && !world.won) {
+      const moving = Math.hypot(p.vx, p.vy) > 40;
+      trailParticles(this, this.look.trail, p, p.x + PHYS.W / 2, p.y + PHYS.H, dt, this.lastT);
+      scarfParticles(this, this.look.scarf, this.scarf, dt, moving);
+      bodyParticles(this, this.look.body, p.x + PHYS.W / 2, p.y + PHYS.H / 2, dt);
+    }
   }
 
   updateScarf(dt, p, time) {
     const ax = p.x + PHYS.W / 2 - p.facing * 3;
     const ay = p.y + 11;
-    const len = this.skin.scarf === 'comet' ? 12 : 7;
+    const len = scarfLength(this.look.scarf.kind);
     if (!this.scarf || this.scarf.length !== len) this.scarf = Array.from({ length: len }, (_, i) => ({ x: ax - p.facing * i * 4, y: ay, ox: ax - p.facing * i * 4, oy: ay }));
     const s = this.scarf;
     s[0].x = s[0].ox = ax;
@@ -310,6 +381,8 @@ export class Renderer {
   // ---------- frame ----------
   render(world, cam, t, time, { showPlayer = true, showSigns = true, ghost = null } = {}) {
     this.time = time;
+    this.lastT = t;
+    this.playerShown = showPlayer;
     const ctx = this.ctx;
     const S = this.scale * this.dpr;
     ctx.setTransform(S, 0, 0, S, 0, 0);
@@ -338,7 +411,7 @@ export class Renderer {
 
     ctx.setTransform(S, 0, 0, S, 0, 0);
     if (this.flash > 0) {
-      ctx.fillStyle = css(pal('accent2', t), this.flash * 0.12);
+      ctx.fillStyle = css(this.pal('accent2', t), this.flash * 0.12);
       ctx.fillRect(0, 0, this.vw, this.vh);
     }
     if (!this.vignette) {
@@ -355,7 +428,7 @@ export class Renderer {
     const ctx = this.ctx;
     const vw = this.vw, vh = this.vh;
     const floorY = this.viewH - cam.y; // world bottom in screen space
-    const top = pal('skyTop', t), bot = pal('skyBot', t);
+    const top = this.pal('skyTop', t), bot = this.pal('skyBot', t);
     const sky = ctx.createLinearGradient(0, 0, 0, floorY);
     sky.addColorStop(0, css(top));
     sky.addColorStop(1, css(bot));
@@ -383,7 +456,7 @@ export class Renderer {
     const m2 = this.moon.getContext('2d');
     m2.clearRect(0, 0, 160, 160);
     m2.globalCompositeOperation = 'source-over';
-    m2.fillStyle = css(pal('disc', t));
+    m2.fillStyle = css(this.pal('disc', t));
     m2.beginPath(); m2.arc(80, 80, r, 0, Math.PI * 2); m2.fill();
     if (t > 0.01) {
       m2.globalCompositeOperation = 'destination-out';
@@ -394,13 +467,13 @@ export class Renderer {
     ctx.drawImage(this.moon, dx - 80, dy - 80);
 
     // far mountains
-    this.drawRidge(this.far, cam, floorY - 70, css(pal('far', t)));
+    this.drawRidge(this.far, cam, floorY - 70, css(this.pal('far', t)));
     this.haze(floorY - 260, floorY, bot, 0.45);
     // mid spires
     const m = this.mid, off = cam.x * m.p;
-    ctx.fillStyle = css(pal('mid', t));
+    ctx.fillStyle = css(this.pal('mid', t));
     const base = floorY - 40;
-    const win = css(pal('accent2', t), 0.55);
+    const win = css(this.pal('accent2', t), 0.55);
     for (const s of m.items) {
       const x = s.x - off;
       if (x > vw + 10 || x + s.w < -10) continue;
@@ -426,11 +499,11 @@ export class Renderer {
     }
     ctx.globalAlpha = 1;
     this.haze(floorY - 180, floorY, bot, 0.35);
-    this.drawRidge(this.near, cam, floorY - 8, css(pal('near', t)));
+    this.drawRidge(this.near, cam, floorY - 8, css(this.pal('near', t)));
 
     // drifting motes
     ctx.globalCompositeOperation = 'lighter';
-    const mc = css(pal('accent2', t), 0.5);
+    const mc = css(this.pal('accent2', t), 0.5);
     ctx.fillStyle = mc;
     for (const q of this.motes) {
       const x = (((q.x - cam.x * 0.7 + Math.sin(time * 0.3 + q.ph) * 20) % (vw + 40)) + vw + 40) % (vw + 40) - 20;
@@ -471,10 +544,10 @@ export class Renderer {
     const x0 = Math.max(0, Math.floor(cam.x / T) - 1), x1 = Math.min(world.w - 1, Math.ceil((cam.x + this.vw) / T) + 1);
     const y0 = Math.max(0, Math.floor(cam.y / T) - 1), y1 = Math.min(world.h - 1, Math.ceil((cam.y + this.vh) / T) + 1);
     const at = (x, y) => (y < 0 || y >= world.h || x < 0 || x >= world.w ? '.' : g[y][x]);
-    const rim = pal('accent', t);
+    const rim = this.pal('accent', t);
 
     // stone body with depth shading
-    ctx.fillStyle = css(pal('stone', t));
+    ctx.fillStyle = css(this.pal('stone', t));
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y][x] === '#') ctx.fillRect(x * T, y * T, T + 0.5, T + 0.5);
     if (this.bottomPad && y1 === world.h - 1) {
       // extend the bedrock below the world when the view reserves space for touch controls
@@ -526,7 +599,7 @@ export class Renderer {
     // phase tiles
     const warn = world.pulse && world.pulseLeft <= PHYS.PULSE_WARN;
     for (const ch of ['A', 'B']) {
-      const P = ch === 'A' ? PAL[0] : PAL[1];
+      const P = ch === 'A' ? this.P[0] : this.P[1];
       const incoming = warn && (ch === 'A') === (world.phase === 1); // the world about to arrive
       const blink = incoming ? (this.reduced ? 0.3 : 0.4 * (0.5 + 0.5 * Math.sin(time * 38))) : 0;
       const s = Math.min(1, (ch === 'A' ? 1 - t : t) + blink);
@@ -570,7 +643,7 @@ export class Renderer {
     // one-way slabs
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       if (g[y][x] !== '=') continue;
-      ctx.fillStyle = css(pal('stone', t));
+      ctx.fillStyle = css(this.pal('stone', t));
       ctx.fillRect(x * T, y * T, T, 8);
       ctx.fillStyle = css(rim, 0.9);
       ctx.fillRect(x * T, y * T, T, 2);
@@ -603,7 +676,7 @@ export class Renderer {
       ctx.fill();
     }
     for (const ch of ['a', 'b']) {
-      const P = ch === 'a' ? PAL[0] : PAL[1];
+      const P = ch === 'a' ? this.P[0] : this.P[1];
       const live = ch === 'a' ? 1 - t : t;
       spikePath(ch, false);
       ctx.fillStyle = css(rgb(P.accent), 0.12 + 0.88 * live);
@@ -641,7 +714,7 @@ export class Renderer {
       ctx.translate(X + shake, Y);
       ctx.fillStyle = c.state === 1 ? '#4a3f55' : '#3a3244';
       ctx.fillRect(0, 0, T, T);
-      ctx.fillStyle = css(pal('accent', t), 0.75);
+      ctx.fillStyle = css(this.pal('accent', t), 0.75);
       ctx.fillRect(0, 0, T, 2);
       // cracks (deterministic per tile), brighter while it breaks
       ctx.strokeStyle = c.state === 1 ? 'rgba(255,230,210,0.75)' : 'rgba(10,8,14,0.6)';
@@ -695,7 +768,7 @@ export class Renderer {
       const topY = B - 12 - ext;
       ctx.fillStyle = '#3a3242';
       ctx.fillRect(X + 5, B - 4, T - 10, 4);
-      ctx.strokeStyle = css(pal('accent2', t));
+      ctx.strokeStyle = css(this.pal('accent2', t));
       ctx.lineWidth = 2;
       ctx.beginPath();
       const n = 4;
@@ -704,7 +777,7 @@ export class Renderer {
         ctx.lineTo(X + (i % 2 ? 9 : T - 9), yy);
       }
       ctx.stroke();
-      ctx.fillStyle = css(pal('accent', t));
+      ctx.fillStyle = css(this.pal('accent', t));
       ctx.fillRect(X + 4, topY - 4, T - 8, 4);
       this.drawGlow('accent', X + T / 2, topY, 22, 0.35, t);
     }
@@ -725,7 +798,7 @@ export class Renderer {
       ctx.moveTo(s.x, y - 10); ctx.lineTo(s.x + w, y); ctx.lineTo(s.x, y + 10); ctx.lineTo(s.x - w, y);
       ctx.closePath();
       ctx.fill();
-      ctx.fillStyle = css(pal('accent', t), 0.7);
+      ctx.fillStyle = css(this.pal('accent', t), 0.7);
       ctx.beginPath();
       ctx.moveTo(s.x, y - 10); ctx.lineTo(s.x + w, y); ctx.lineTo(s.x, y);
       ctx.closePath();
@@ -739,8 +812,8 @@ export class Renderer {
       const top = c.y - 40;
       if (c.active) {
         const beam = ctx.createLinearGradient(0, top - 120, 0, top);
-        beam.addColorStop(0, css(pal('accent', t), 0));
-        beam.addColorStop(1, css(pal('accent', t), 0.22));
+        beam.addColorStop(0, css(this.pal('accent', t), 0));
+        beam.addColorStop(1, css(this.pal('accent', t), 0.22));
         ctx.fillStyle = beam;
         ctx.fillRect(c.x - 5, top - 120, 10, 120);
       }
@@ -755,7 +828,7 @@ export class Renderer {
         this.drawGlow('accent', c.x, cy, 34, 0.8, t);
         ctx.globalCompositeOperation = 'source-over';
       }
-      ctx.fillStyle = c.active ? css(pal('accent2', t)) : '#5b5266';
+      ctx.fillStyle = c.active ? css(this.pal('accent2', t)) : '#5b5266';
       ctx.beginPath();
       ctx.moveTo(c.x, cy - 8); ctx.lineTo(c.x + 5, cy); ctx.lineTo(c.x, cy + 8); ctx.lineTo(c.x - 5, cy);
       ctx.closePath();
@@ -777,7 +850,7 @@ export class Renderer {
     const spin = this.reduced ? 0 : time;
     for (let i = 0; i < 3; i++) {
       const dir = i % 2 ? -1 : 1;
-      ctx.strokeStyle = css(pal(i === 1 ? 'accent2' : 'accent', t), 0.9 - i * 0.2);
+      ctx.strokeStyle = css(this.pal(i === 1 ? 'accent2' : 'accent', t), 0.9 - i * 0.2);
       ctx.lineWidth = 2.5 - i * 0.5;
       ctx.beginPath();
       ctx.ellipse(x, y, 17 + i * 6, 24 + i * 6, 0, spin * (1.2 + i * 0.4) * dir, spin * (1.2 + i * 0.4) * dir + Math.PI * 1.3);
@@ -790,9 +863,9 @@ export class Renderer {
     ctx.font = '600 13px "JetBrains Mono", ui-monospace, monospace';
     ctx.textBaseline = 'top';
     for (const s of world.level.signs) {
-      ctx.fillStyle = css(pal('accent2', t), 0.75);
+      ctx.fillStyle = css(this.pal('accent2', t), 0.75);
       ctx.fillText(s.text.replace(/\{(\w+)\}/g, (_, act) => this.labelFor(act)), s.x, s.y);
-      ctx.fillStyle = css(pal('accent', t), 0.5);
+      ctx.fillStyle = css(this.pal('accent', t), 0.5);
       ctx.fillRect(s.x, s.y + 20, 18, 2);
     }
   }
@@ -801,65 +874,61 @@ export class Renderer {
     const ctx = this.ctx;
     const p = world.player;
     const W = PHYS.W, H = PHYS.H;
-    // afterimages
+    const look = this.look;
+    drawRibbon(this, ctx);
+    // afterimages: dash streak (filled) and the World Echo trail (outlined)
     for (const a of this.after) {
-      ctx.fillStyle = css(pal('accent', t), (a.life / 0.22) * 0.45);
+      const k = a.life / (a.max || 0.22);
       ctx.beginPath();
-      ctx.roundRect(a.x, a.y, W, H, 6);
-      ctx.fill();
+      ctx.roundRect(a.x, a.y, W, H, a.echo ? 7 : 6);
+      if (a.echo) {
+        ctx.fillStyle = css(this.pal('accent', t), k * 0.16);
+        ctx.fill();
+        ctx.strokeStyle = css(this.pal('accent2', t), k * 0.55);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = css(this.pal('accent', t), k * 0.45);
+        ctx.fill();
+      }
     }
     if (!p.alive || world.won) return;
     const cx = p.x + W / 2, by = p.y + H;
     ctx.globalCompositeOperation = 'lighter';
     this.drawGlow('accent', cx, by - H / 2, 46, 0.28, t);
     ctx.globalCompositeOperation = 'source-over';
+    drawAura(this, ctx, look.body, cx, by - H / 2);
 
     // scarf behind body
-    if (this.scarf) {
-      const sc = this.skin.scarf;
-      const starlight = sc === 'starlight' || sc === 'comet';
-      ctx.lineCap = 'round';
-      if (starlight) {
-        ctx.globalCompositeOperation = 'lighter';
-        const tail = this.scarf[this.scarf.length - 1];
-        this.drawGlow('accent2', tail.x, tail.y, 14, 0.7, t);
-        ctx.globalCompositeOperation = 'source-over';
-      }
-      for (let i = 1; i < this.scarf.length; i++) {
-        if (sc === 'aurora') ctx.strokeStyle = i % 2 ? PAL[0].accent : PAL[1].accent;
-        else if (starlight) ctx.strokeStyle = '#fff6d6';
-        else if (sc === 'comet') ctx.strokeStyle = `rgba(205,239,255,${1 - i / this.scarf.length * 0.8})`;
-        else ctx.strokeStyle = sc || css(pal('accent', t));
-        ctx.lineWidth = 5 - i * 0.5;
-        ctx.beginPath();
-        ctx.moveTo(this.scarf[i - 1].x, this.scarf[i - 1].y);
-        ctx.lineTo(this.scarf[i].x, this.scarf[i].y);
-        ctx.stroke();
-      }
-    }
+    if (this.scarf) drawScarf(this, ctx, look.scarf, this.scarf, t);
 
     ctx.save();
     ctx.translate(cx, by);
     ctx.scale(this.sq.x, this.sq.y);
-    this.drawHat(this.skin.hat, p.facing, t, H);
-    ctx.fillStyle = this.skin.body === 'prism' ? `hsl(${(this.time * 70) % 360}, 75%, 76%)` : this.skin.body;
+    const visor = look.body.visor;
+    drawHat(this, ctx, look.hat, 'back', p.facing, t, H, visor);
+    ctx.fillStyle = bodyFill(this, ctx, look.body, t, W, H);
     ctx.beginPath();
     ctx.roundRect(-W / 2, -H, W, H, 7);
     ctx.fill();
-    if (this.skin.outline) {
-      ctx.strokeStyle = css(pal('accent', t), 0.9);
+    if (look.body.outline) {
+      ctx.strokeStyle = css(this.pal('accent', t), 0.9);
       ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else if (look.body.kind === 'supernova') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.lineWidth = 1;
       ctx.stroke();
     }
     ctx.fillStyle = 'rgba(40,30,45,0.12)';
     ctx.fillRect(-W / 2 + 2, -6, W - 4, 4);
-    ctx.fillStyle = this.skin.visor;
+    ctx.fillStyle = visor;
     ctx.beginPath();
     ctx.roundRect(-W / 2 + 2, -H + 6, W - 4, 9, 4.5);
     ctx.fill();
     const f = p.facing;
     const eh = this.blink > 0 ? 1 : 4;
-    ctx.fillStyle = css(pal('accent2', t));
+    ctx.fillStyle = css(this.pal('accent2', t));
     ctx.fillRect(-4 + f * 3 - 1.5, -H + 8.5 + (4 - eh) / 2, 3, eh);
     ctx.fillRect(3 + f * 3 - 1.5, -H + 8.5 + (4 - eh) / 2, 3, eh);
     // dash spent: dim the body until the player lands again
@@ -869,74 +938,8 @@ export class Renderer {
       ctx.roundRect(-W / 2, -H, W, H, 7);
       ctx.fill();
     }
+    drawHat(this, ctx, look.hat, 'front', p.facing, t, H, visor);
     ctx.restore();
-  }
-
-  // Accessories are drawn in the player's local space: origin at the feet, top of the head at -H.
-  drawHat(hat, facing, t, H) {
-    const ctx = this.ctx;
-    if (hat === 'antenna') {
-      ctx.strokeStyle = this.skin.visor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-facing * 2, -H + 1);
-      ctx.quadraticCurveTo(-facing * 3, -H - 6, -facing * 6, -H - 10);
-      ctx.stroke();
-      ctx.globalCompositeOperation = 'lighter';
-      this.drawGlow('accent', -facing * 6, -H - 10, 10, 0.9, t);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = css(pal('accent2', t));
-      ctx.beginPath(); ctx.arc(-facing * 6, -H - 10, 2.6, 0, Math.PI * 2); ctx.fill();
-    } else if (hat === 'horns') {
-      ctx.fillStyle = '#2b2533';
-      for (const side of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(side * 3, -H + 2);
-        ctx.quadraticCurveTo(side * 10, -H - 2, side * 9, -H - 9);
-        ctx.quadraticCurveTo(side * 6, -H - 3, side * 8, -H + 3);
-        ctx.closePath();
-        ctx.fill();
-      }
-    } else if (hat === 'halo') {
-      const bob = this.reduced ? 0 : Math.sin(this.time * 3) * 1.2;
-      ctx.globalCompositeOperation = 'lighter';
-      this.drawGlow('accent2', 0, -H - 7 + bob, 16, 0.5, t);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = '#ffd36b';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.ellipse(0, -H - 7 + bob, 8, 2.6, 0, 0, Math.PI * 2); ctx.stroke();
-    } else if (hat === 'lantern') {
-      const sway = this.reduced ? 0 : Math.sin(this.time * 2.2) * 2;
-      ctx.strokeStyle = this.skin.visor;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(facing * 4, -H + 1); ctx.lineTo(facing * 4 + sway, -H - 11); ctx.stroke();
-      ctx.globalCompositeOperation = 'lighter';
-      this.drawGlow('accent', facing * 4 + sway, -H - 14, 18, 0.9, t);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = '#ffe2a8';
-      ctx.fillRect(facing * 4 + sway - 3, -H - 18, 6, 7);
-    } else if (hat === 'wings') {
-      const flap = this.reduced ? 0 : Math.sin(this.time * 9) * 0.35;
-      ctx.fillStyle = 'rgba(243,239,231,0.9)';
-      for (const side of [-1, 1]) {
-        ctx.save();
-        ctx.translate(side * 9, -H + 10);
-        ctx.rotate(side * (0.5 + flap));
-        ctx.beginPath();
-        ctx.ellipse(side * 6, 0, 8, 3.5, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-    } else if (hat === 'crown') {
-      ctx.fillStyle = '#ffd36b';
-      ctx.beginPath();
-      ctx.moveTo(-7, -H + 2); ctx.lineTo(-7, -H - 6); ctx.lineTo(-3.5, -H - 2); ctx.lineTo(0, -H - 8);
-      ctx.lineTo(3.5, -H - 2); ctx.lineTo(7, -H - 6); ctx.lineTo(7, -H + 2);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = css(pal('accent', t));
-      ctx.beginPath(); ctx.arc(0, -H - 1.5, 1.6, 0, Math.PI * 2); ctx.fill();
-    }
   }
 
   // Best-run ghost: a translucent outline that runs the stored inputs in its own world.
@@ -946,7 +949,7 @@ export class Renderer {
     ctx.save();
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = 'rgba(243,239,231,0.22)';
-    ctx.strokeStyle = css(pal('accent2', t), 0.8);
+    ctx.strokeStyle = css(this.pal('accent2', t), 0.8);
     ctx.lineWidth = 1.5;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -963,19 +966,20 @@ export class Renderer {
 
   drawParticles() {
     const ctx = this.ctx;
+    for (const r of this.rings) if (r.hole) drawHole(this, ctx, r); // particles fall into it, so it goes first
     for (const pass of [false, true]) {
       if (pass) ctx.globalCompositeOperation = 'lighter';
       for (const p of this.particles) {
         if (p.glow !== pass) continue;
-        ctx.globalAlpha = Math.max(0, p.life / p.max);
-        ctx.fillStyle = p.color;
-        const s = p.size * (0.5 + 0.5 * (p.life / p.max));
-        ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+        const k = Math.max(0, p.life / p.max);
+        ctx.globalAlpha = p.shape === 'confetti' || p.shape === 'tri' ? Math.min(1, k * 3) : k; // paper and shards fade late
+        drawParticleShape(ctx, p, k);
       }
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     for (const r of this.rings) {
+      if (r.hole) continue;
       const k = 1 - r.life / r.max;
       const e = 1 - (1 - k) ** 3;
       const rad = r.shrink ? r.r * (1 - e) : r.r + e * (r.grow ?? 160);
@@ -991,7 +995,9 @@ export class Renderer {
 }
 
 // Tiny level map for the level-select cards, with an optional death heatmap ([[x, y], ...] in world px).
-export function drawMinimap(canvas, level, deaths = []) {
+// theme: theme id for the colours; defaults to the theme of the main renderer.
+export function drawMinimap(canvas, level, deaths = [], theme = minimapTheme) {
+  const PAL = THEMES[theme] ? [THEMES[theme].ember, THEMES[theme].frost] : [THEMES.dusk.ember, THEMES.dusk.frost];
   const s = 3;
   canvas.width = level.w * s;
   canvas.height = level.h * s;

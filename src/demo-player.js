@@ -1,13 +1,15 @@
 // Plays a scripted demo scene (src/demos.js) on the real simulation in a small canvas.
-// Used by the onboarding tutorial and the wardrobe preview.
+// Used by the onboarding tutorial and the shop preview.
 import { TILE as T } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
 import { Renderer } from './render.js';
 import { demoInput, demoActive } from './demos.js';
 
 export class DemoPlayer {
-  constructor(canvas) {
-    this.renderer = new Renderer(canvas, { fit: true, viewH: 9 * T, minW: 360 });
+  // view: { viewH, minW } in world px (default frames the whole 9-row scene); center: keep the player centred
+  constructor(canvas, view = {}) {
+    this.renderer = new Renderer(canvas, { fit: true, viewH: view.viewH || 9 * T, minW: view.minW || 360 });
+    this.lead = view.center ? 0 : 40;
     this.cam = { x: 0, y: 0 };
     this.demo = null;
     this.world = null;
@@ -35,12 +37,14 @@ export class DemoPlayer {
   camera(dt, snap = false) {
     const r = this.renderer, w = this.world;
     const lw = w.w * T, lh = w.h * T;
-    let tx = w.player.x + PHYS.W / 2 - r.vw / 2 + 40;
+    let tx = w.player.x + PHYS.W / 2 - r.vw / 2 + this.lead;
     tx = lw <= r.vw ? (lw - r.vw) / 2 : Math.min(Math.max(tx, 0), lw - r.vw);
-    const ty = lh - r.vh;
+    // when zoomed in closer than the scene height, follow the player vertically too
+    const ty = lh <= r.vh ? lh - r.vh : Math.min(Math.max(w.player.y + PHYS.H / 2 - r.vh * 0.6, 0), lh - r.vh);
     if (snap) { this.cam.x = tx; this.cam.y = ty; return; }
-    this.cam.x += (tx - this.cam.x) * Math.min(1, dt * 5);
-    this.cam.y = ty;
+    const k = Math.min(1, dt * 5);
+    this.cam.x += (tx - this.cam.x) * k;
+    this.cam.y += (ty - this.cam.y) * k;
   }
 
   // Advances and draws one frame; returns the set of actions the script is "pressing".

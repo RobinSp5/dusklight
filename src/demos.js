@@ -80,6 +80,21 @@ export const DEMOS = [
   },
 ];
 
+// Shop preview: the character shows off on flat ground (run, jump, switch worlds, dash both ways)
+// so every cosmetic is visible, centred and never off screen. Verified in tests/demos.mjs.
+export const SHOWCASE = {
+  id: 'showcase',
+  // exactly as tall as the shop's view (7 rows), so the ground never leaves the frame during a jump
+  level: build({ name: 'showcase', w: 24, h: 7, seed: 21 }, ({ ground, put }) => {
+    ground(0, 23, 5);
+    put(11, 4, 'P');
+  }),
+  duration: 4.2,
+  hold: [[0.1, 1.0, 'right'], [0.35, 0.65, 'jump'], [1.25, 2.45, 'left'], [1.5, 1.8, 'jump'], [2.7, 3.6, 'right'], [3.0, 3.25, 'jump']],
+  tap: [[0.5, 'swap'], [1.9, 'dash'], [2.1, 'swap'], [3.4, 'dash']],
+  done: (w) => w.player.alive,
+};
+
 // Body text with the player's current key labels filled in, e.g. {jump} -> "Space".
 export function demoBody(demo, labelFor, touch) {
   return touch ? demo.touchBody : demo.body.replace(/\{(\w+)\}/g, (_, a) => labelFor(a));

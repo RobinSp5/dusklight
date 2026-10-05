@@ -5,6 +5,6 @@
   "scripts": {
     "start": "node server.mjs",
     "solve": "node tests/solve.mjs",
-    "test": "node tests/importmap.mjs && node tests/icons.mjs && node tests/bindings.mjs && node tests/progress.mjs && node tests/mechanics.mjs && node tests/swap.mjs && node tests/demos.mjs && node tests/fairness.mjs && node tests/profile.mjs && node tests/solve.mjs"
+    "test": "node tests/importmap.mjs && node tests/icons.mjs && node tests/bindings.mjs && node tests/progress.mjs && node tests/shop.mjs && node tests/mechanics.mjs && node tests/swap.mjs && node tests/demos.mjs && node tests/fairness.mjs && node tests/profile.mjs && node tests/solve.mjs"
   }
 }

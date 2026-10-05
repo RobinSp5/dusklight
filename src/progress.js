@@ -1,4 +1,4 @@
-// Progress rules that do not touch the DOM: stars, ghost encoding, skins, death log.
+// Progress rules that do not touch the DOM: stars, ghost encoding, death log (cosmetics and the shop live in shop.js).
 // Pure functions so tests/progress.mjs can verify them in Node.
 
 // Par times (seconds) for the "fast" star. Derived from the solver's route time per level
@@ -56,63 +56,6 @@ export function levelHash(level) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0).toString(36);
-}
-
-// ---------- skins: unlocked by total shards collected (thresholds, nothing is spent) ----------
-export const SKINS = {
-  body: [
-    { id: 'paper', name: 'Paper', color: '#f3efe7', visor: '#16131c', need: 0 },
-    { id: 'ash', name: 'Ash', color: '#a49db0', visor: '#16131c', need: 5 },
-    { id: 'rose', name: 'Rose', color: '#ffa3bb', visor: '#2a1420', need: 10 },
-    { id: 'moss', name: 'Moss', color: '#a6dc8f', visor: '#13210f', need: 18 },
-    { id: 'gold', name: 'Gold', color: '#ffd36b', visor: '#2a1d06', need: 28 },
-    { id: 'void', name: 'Void', color: '#211d2b', visor: '#3d3650', outline: true, need: 40 },
-    { id: 'prism', name: 'Prism', color: 'prism', visor: '#16131c', need: 100 },
-  ],
-  scarf: [
-    { id: 'world', name: 'World', color: null, need: 0 }, // follows the active world colour
-    { id: 'crimson', name: 'Crimson', color: '#e5484d', need: 3 },
-    { id: 'violet', name: 'Violet', color: '#a78bfa', need: 8 },
-    { id: 'lime', name: 'Lime', color: '#c6f432', need: 14 },
-    { id: 'aurora', name: 'Aurora', color: 'aurora', need: 24 },
-    { id: 'starlight', name: 'Starlight', color: 'starlight', need: 34 },
-    { id: 'comet', name: 'Comet', color: 'comet', need: 80 },
-  ],
-  hat: [
-    { id: 'none', name: 'None', need: 0 },
-    { id: 'antenna', name: 'Antenna', need: 12 },
-    { id: 'horns', name: 'Horns', need: 20 },
-    { id: 'halo', name: 'Halo', need: 30 },
-    { id: 'crown', name: 'Crown', need: 45 },
-    { id: 'lantern', name: 'Lantern', need: 60 },
-    { id: 'wings', name: 'Wings', need: 115 },
-  ],
-};
-export const DEFAULT_SKIN = { body: 'paper', scarf: 'world', hat: 'none' };
-
-export function shardPoints(best) {
-  return Object.values(best || {}).reduce((s, e) => s + (e && Number.isFinite(e.shards) ? e.shards : 0), 0);
-}
-
-export const isUnlocked = (part, id, points) => {
-  const item = SKINS[part].find((x) => x.id === id);
-  return !!item && points >= item.need;
-};
-
-// Falls back to the default for anything unknown or not (yet) unlocked.
-export function resolveSkin(choice, points) {
-  const out = {};
-  for (const part of Object.keys(SKINS)) {
-    const id = choice && choice[part];
-    out[part] = id && isUnlocked(part, id, points) ? id : DEFAULT_SKIN[part];
-  }
-  return out;
-}
-
-export function skinStyle(skin) {
-  const body = SKINS.body.find((x) => x.id === skin.body);
-  const scarf = SKINS.scarf.find((x) => x.id === skin.scarf);
-  return { body: body.color, visor: body.visor, outline: !!body.outline, scarf: scarf.color, hat: skin.hat };
 }
 
 // Stored data comes from localStorage and may be corrupt: keep only well-formed entries.
