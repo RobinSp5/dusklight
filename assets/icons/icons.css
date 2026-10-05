@@ -63,11 +63,17 @@
 .ph-bold.ph-device-rotate:before {
   content: "\edf2";
 }
+.ph-bold.ph-feather:before {
+  content: "\e9c0";
+}
 .ph-bold.ph-flame:before {
   content: "\e624";
 }
 .ph-bold.ph-gear-six:before {
   content: "\e272";
+}
+.ph-bold.ph-lightbulb:before {
+  content: "\e2dc";
 }
 .ph-bold.ph-lightning:before {
   content: "\e2de";

@@ -1,4 +1,4 @@
-import { LEVELS, TILE as T } from './levels.js';
+import { LEVELS, ACTS, TILE as T } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
 import { Renderer, drawMinimap } from './render.js';
 import { Sound } from './audio.js';
@@ -49,7 +49,9 @@ function loadSave() {
       if (!e || !Number.isFinite(e.time) || !Number.isFinite(e.shards)) delete s.best[k];
       else e.deathless = !!e.deathless;
     }
-    s.unlocked = Math.min(Math.max(0, s.unlocked), LEVELS.length - 1);
+    // a level counts as unlocked when the one before it was cleared (old saves stopped at level 8)
+    const cleared = Object.keys(s.best).map((k) => Math.min(Number(k) + 1, LEVELS.length - 1));
+    s.unlocked = Math.min(Math.max(0, s.unlocked, ...cleared), LEVELS.length - 1);
     s.skin = s.skin && typeof s.skin === 'object' ? s.skin : { ...DEFAULT_SKIN };
     return s;
   }
@@ -123,7 +125,7 @@ function updatePortraitHint() {
 function setAccent(p) {
   document.documentElement.style.setProperty('--accent', p ? 'var(--frost)' : 'var(--glut)');
   $('#phasePill').dataset.phase = String(p);
-  $('#phasePill').setAttribute('aria-label', `Active world: ${p ? 'Frost' : 'Ember'}`);
+  $('#phasePill').setAttribute('aria-label', `Active world: ${p ? 'Frost' : 'Ember'}${world && world.pulse ? ', switches on the beat' : ''}`);
 }
 
 function applySkin() {
@@ -153,6 +155,8 @@ function startLevel(i) {
   snapCamera();
   hudCache = {};
   $('#hudLevel').textContent = `${i + 1}  ${LEVELS[i].name}`;
+  $('#phasePill').classList.toggle('is-pulse', !!world.pulse);
+  document.querySelector('.t-swap').hidden = !!world.pulse; // the beat switches the world in pulse levels
 }
 
 function pause() {
@@ -421,6 +425,13 @@ function buildSelect() {
   const grid = $('#levelGrid');
   grid.replaceChildren();
   LEVELS.forEach((lv, i) => {
+    const act = ACTS.find((a) => a.from === i);
+    if (act) {
+      const head = document.createElement('h3');
+      head.className = 'act-head';
+      head.textContent = act.name;
+      grid.append(head);
+    }
     const locked = i > save.unlocked;
     const best = save.best[i];
     const b = document.createElement('button');
@@ -555,7 +566,7 @@ function updateOnboarding(dt) {
 // ---------- wardrobe ----------
 const wd = { player: null };
 const PART_TARGET = { body: '#wdBody', scarf: '#wdScarf', hat: '#wdHat' };
-const HAT_ICON = { none: 'ph-x', antenna: 'ph-broadcast', horns: 'ph-flame', halo: 'ph-circle-notch', crown: 'ph-crown' };
+const HAT_ICON = { none: 'ph-x', antenna: 'ph-broadcast', horns: 'ph-flame', halo: 'ph-circle-notch', crown: 'ph-crown', lantern: 'ph-lightbulb', wings: 'ph-feather' };
 
 function openWardrobe() {
   S.init();
@@ -585,11 +596,12 @@ function buildWardrobe() {
       const chip = document.createElement('span');
       chip.className = 'chip';
       chip.setAttribute('aria-hidden', 'true');
-      if (part === 'body') chip.style.background = item.color;
+      if (part === 'body') chip.style.background = item.color === 'prism' ? 'conic-gradient(#ff9fb8, #ffd36b, #a6dc8f, #7ef0ff, #a78bfa, #ff9fb8)' : item.color;
       else if (part === 'scarf') {
         chip.style.background = item.color === null ? 'linear-gradient(90deg, var(--glut) 50%, var(--frost) 50%)'
           : item.color === 'aurora' ? 'repeating-linear-gradient(90deg, var(--glut) 0 5px, var(--frost) 5px 10px)'
-            : item.color === 'starlight' ? 'radial-gradient(circle, #fff6d6 30%, rgba(255,246,214,0.2) 70%)' : item.color;
+            : item.color === 'starlight' ? 'radial-gradient(circle, #fff6d6 30%, rgba(255,246,214,0.2) 70%)'
+              : item.color === 'comet' ? 'linear-gradient(90deg, #cdefff, rgba(205,239,255,0.15))' : item.color;
       } else chip.innerHTML = `<i class="ph-bold ${HAT_ICON[item.id]}"></i>`;
       b.append(chip, item.name);
       if (!unlocked) {
@@ -658,6 +670,7 @@ function setText(id, v) {
 }
 function updateHud() {
   if (state !== 'play' && state !== 'pause') return;
+  if (world.pulse) $('#phasePill').style.setProperty('--pulse', String(Math.max(0, 1 - world.pulseLeft / world.pulse)));
   setText('hudShards', `${world.collected}/${world.shards.length}`);
   setText('hudTime', fmt(world.time));
   setText('hudDeaths', String(world.deaths));

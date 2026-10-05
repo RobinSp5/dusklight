@@ -26,7 +26,8 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 ## Architektur
 
 - `src/world.js` – **reine, deterministische Simulation** (fester Schritt 1/120 s, kein DOM, kein `Math.random`). Solver, Ghost, Tutorial-Demos und Trailer hängen davon ab: Determinismus nie brechen.
-- `src/levels.js` – 8 Level über die Builder-API. Schilder-Tokens wie `{jump}` werden zur aktuellen Taste/Touch-Taste.
+- `src/level-kit.js` – Tile-Legende + Builder-API. `src/levels.js` = Akte I–II (Level 1–8) + Zusammenbau, Akte III–VI in `src/levels-act3.js` … `levels-act6.js`. Schilder-Tokens wie `{jump}` werden zur aktuellen Taste/Touch-Taste.
+- Mechaniken: Phasen-Tiles `A`/`B`, Dornen `^ v a b`, Feder `S`, Einweg `=`, Bröckelstein `x`, Dash-Orb `d`, Puls-Level (`pulse: s`, Welt wechselt im Takt, manueller Wechsel aus).
 - `src/render.js` – Renderer (Parallax, Phasen-Blend, Partikel, Skins, Ghost). `new Renderer(canvas, { fit, viewH, minW })` für kleine Canvases.
 - `src/progress.js` – Sterne/Par, Ghost-RLE, Skins, Todes-Log, Sanitizer für localStorage (rein, getestet).
 - `src/input.js` – frei belegbare Tasten (`normalizeBindings`/`rebind`: keine Taste doppelt, Esc pausiert immer), Gamepad inkl. Menünavigation.
@@ -35,7 +36,8 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 
 ## Regeln, die beim Ändern gelten
 
-1. **Level geändert →** `npm test` muss grün sein: Solver (jedes Level schaffbar, jeder Splitter erreichbar), `tests/fairness.mjs` (keine Deckendornen-Entscheidung um wenige Pixel) und `tests/profile.mjs` (tödliche Spalten und Gefahren steigen von Level 1 bis 8 **streng** an). Par-Zeiten in `src/progress.js` ggf. anpassen.
+1. **Level geändert →** `npm test` muss grün sein: Solver (jedes Level schaffbar, jeder Splitter erreichbar; segmentweise über Checkpoints, parallel auf allen Kernen), `tests/fairness.mjs` (keine Deckendornen-Entscheidung um wenige Pixel) und `tests/profile.mjs` (tödliche Spalten und Gefahren steigen von Level 1 bis 25 **streng** an, sonst Exit 1). Par-Zeiten in `src/progress.js` aus `JSON=1 node tests/solve.mjs` ableiten (Route × 1,8 + 5).
+1b. **Neue Mechanik →** in `world.js` deterministisch, Zustand in `clone()` und `stateKey()` aufnehmen, Unit-Test in `tests/mechanics.mjs`.
 2. **Neues Modul in `src/` →** in die Import-Map in `index.html` eintragen (`tests/importmap.mjs` prüft das, sonst bricht der Deploy ab).
 3. **Neues Icon →** Klasse `ph-…` in `assets/icons/icons.css` ergänzen (getrimmte, selbst gehostete Phosphor-CSS; `tests/icons.mjs` prüft das).
 4. **Keine Drittanbieter-Requests** (DSGVO): Fonts und Icons liegen in `assets/`. Kein Google Fonts, kein CDN im Spiel.

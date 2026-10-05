@@ -1,26 +1,13 @@
-// Level data. Tiles:
-//  #  solid stone            A  solid only in phase Ember (0)   B  solid only in phase Frost (1)
-//  ^  spikes                 =  one-way platform               S  spring
-//  o  shard                  C  checkpoint                     E  exit portal     P  player start
-export const TILE = 32;
+// Level data. Tile legend and builder live in level-kit.js; acts III-VI live in their own files.
+import { TILE, build } from './level-kit.js';
+import { ACT3 } from './levels-act3.js';
+import { ACT4 } from './levels-act4.js';
+import { ACT5 } from './levels-act5.js';
+import { ACT6 } from './levels-act6.js';
 
-export function build(meta, draw) {
-  const { w, h } = meta;
-  const g = Array.from({ length: h }, () => Array(w).fill('.'));
-  const signs = [];
-  const api = {
-    put(x, y, c) { if (x >= 0 && x < w && y >= 0 && y < h) g[y][x] = c; },
-    fill(x0, y0, x1, y1, c) { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) api.put(x, y, c); },
-    ground(x0, x1, top, c = '#') { api.fill(x0, top, x1, h - 1, c); },
-    row(x0, x1, y, c) { api.fill(x0, y, x1, y, c); },
-    // {action} tokens are replaced with the player's current key or touch button when drawn
-    sign(x, y, text) { signs.push({ x: x * TILE, y: y * TILE, text }); },
-  };
-  draw(api);
-  return { ...meta, startPhase: meta.startPhase ?? 0, rows: g.map((r) => r.join('')), signs };
-}
+export { TILE, build };
 
-export const LEVELS = [
+const BASE = [
   build({ name: 'Awakening', w: 96, h: 17, seed: 11 }, ({ ground, row, put, fill, sign }) => {
     ground(0, 18, 14);
     put(3, 13, 'P');
@@ -285,4 +272,16 @@ export const LEVELS = [
     ground(139, 149, 10);
     put(146, 9, 'E');
   }),
+];
+
+export const LEVELS = [...BASE, ...ACT3, ...ACT4, ...ACT5, ...ACT6];
+
+// Chapter headings for the level select (first level index of each act).
+export const ACTS = [
+  { from: 0, name: 'Act I: Two worlds' },
+  { from: 4, name: 'Act II: Thorns' },
+  { from: 8, name: 'Act III: Crumble' },
+  { from: 12, name: 'Act IV: Sparks' },
+  { from: 17, name: 'Act V: Pulse' },
+  { from: 21, name: 'Act VI: Beyond' },
 ];

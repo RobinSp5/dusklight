@@ -47,21 +47,21 @@ On first launch an animated tutorial shows each move as a live, scripted game sc
 
 ## Levels
 
-| # | Name | Focus |
+25 levels in six acts. Difficulty rises with every level (checked by `tests/profile.mjs`) and every level and every shard is proven reachable with the real physics (`tests/solve.mjs`).
+
+| Act | Levels | New idea |
 |---|---|---|
-| 1 | Awakening | moving, jumping, first world switch |
-| 2 | Tides | switching mid-air, dash |
-| 3 | Hall of Mirrors | springs, phase corridor, one-way platforms |
-| 4 | Threshold | no floor, two-tile platforms |
-| 5 | Thorn Hall | hanging spikes: control your jump height |
-| 6 | Flux | phase spikes that only hurt in their own world |
-| 7 | Star Leap | spring chains, dash gaps over a spike floor |
-| 8 | Zenith | everything combined, single tiles, few checkpoints |
+| I: Two worlds | 1 Awakening, 2 Tides, 3 Hall of Mirrors, 4 Threshold | switching worlds, dash, springs, one-way platforms |
+| II: Thorns | 5 Thorn Hall, 6 Flux, 7 Star Leap, 8 Zenith | hanging spikes, phase spikes that only hurt in their own world |
+| III: Crumble | 9 Brittle Crossing, 10 Sinking Viaduct, 11 Crumbling Cathedral, 12 Collapse | crumbling stone that breaks under your feet |
+| IV: Sparks | 13 First Sparks, 14 Lantern Bridge, 15 Updraft, 16 Needle Run, 17 Chainlight | dash orbs that recharge your dash in mid-air |
+| V: Pulse | 18 Metronome, 19 Tide Clock, 20 Breathing Walls, 21 Crescendo | the world switches on its own, on the beat |
+| VI: Beyond | 22 Brittle Sky, 23 Needle's Eye, 24 Heartbeat, 25 Dusklight | everything combined, the finale |
 
 ## Structure
 
 - `src/world.js` – pure simulation (fixed 120 Hz step, coyote time, jump buffer, dash, springs, one-way platforms, phase collision)
-- `src/levels.js` – the 8 levels, written with a small builder API
+- `src/level-kit.js` – tile legend and level builder; `src/levels.js` (acts I-II) and `src/levels-act3.js` … `levels-act6.js`
 - `src/render.js` – procedural parallax backdrop, world colour blend, particles, scarf physics
 - `src/audio.js` – synthesised effects and an ambient pad on separate music and effects buses
 - `src/settings.js` – persisted player settings

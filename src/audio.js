@@ -180,6 +180,21 @@ export class Sound {
       case 'win':
         [392, 523.25, 659.25, 783.99, 1046.5].forEach((f, i) => this.tone(f, 0.9, { type: 'triangle', g: 0.08, at: i * 0.09 }));
         break;
+      case 'crumble':
+        this.noise(0.12, { g: 0.12, f: 700, type: 'bandpass', q: 1.4 });
+        break;
+      case 'crumbleFall':
+        this.noise(0.35, { g: 0.22, f: 420, to: 120, type: 'lowpass' });
+        this.tone(90, 0.25, { type: 'sine', g: 0.08, to: 50 });
+        break;
+      case 'orb':
+        this.tone(1318.5, 0.18, { type: 'triangle', g: 0.08 });
+        this.tone(1975.5, 0.32, { type: 'sine', g: 0.05, at: 0.05 });
+        break;
+      case 'pulseWarn':
+        this.tone(e.phase ? 523.25 : 659.25, 0.08, { type: 'square', g: 0.035 });
+        this.tone(e.phase ? 523.25 : 659.25, 0.08, { type: 'square', g: 0.035, at: 0.2 });
+        break;
       case 'ui':
         this.tone(700, 0.06, { type: 'sine', g: 0.04 });
         break;

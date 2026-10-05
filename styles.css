@@ -486,6 +486,28 @@ input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-of
   .ob-body { font-size: 16px; }
 }
 
+/* ---------- level select: act headings ---------- */
+.act-head {
+  grid-column: 1 / -1;
+  margin: 18px 4px 2px;
+  font: 600 15px 'Unbounded', sans-serif;
+  letter-spacing: -0.01em;
+  color: var(--muted);
+}
+.act-head:first-child { margin-top: 0; }
+
+/* pulse levels: a countdown bar under the world pill fills up until the next flip */
+.phase-pill.is-pulse::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: -7px;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--accent) calc(var(--pulse, 0) * 100%), rgb(243 239 231 / 0.15) 0);
+}
+
 /* ---------- wardrobe ---------- */
 .screen-wardrobe .select-wrap { width: min(1120px, 100%); padding-block: 8px; }
 .points {

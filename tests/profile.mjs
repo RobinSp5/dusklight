@@ -5,8 +5,9 @@ import { LEVELS } from '../src/levels.js';
 
 const LAND = new Set(['#', 'A', 'B', '=']);
 const HAZ = new Set(['^', 'v', 'a', 'b']);
-const MECH = { A: 'Phase', B: 'Phase', '^': 'Dornen', v: 'Hängedornen', a: 'Phasendornen', b: 'Phasendornen', S: 'Feder', '=': 'Einweg' };
+const MECH = { A: 'Phase', B: 'Phase', '^': 'Dornen', v: 'Hängedornen', a: 'Phasendornen', b: 'Phasendornen', S: 'Feder', '=': 'Einweg', x: 'Bröckel', d: 'Orbs' };
 
+const series = [];
 for (const [i, L] of LEVELS.entries()) {
   const g = L.rows;
   const at = (x, y) => (y < 0 ? '.' : g[y][x]);
@@ -35,5 +36,13 @@ for (const [i, L] of LEVELS.entries()) {
   let gap = 0;
   for (let k = 1; k < saves.length; k++) gap = Math.max(gap, saves[k] - saves[k - 1]);
   const mech = new Set(g.join('').split('').map((c) => MECH[c]).filter(Boolean));
-  console.log(`${String(i + 1).padStart(2)} ${L.name.padEnd(12)} tödl.Spalten=${String(deadly).padStart(3)}  Gefahren=${String(hazards).padStart(3)}  schmalste Landung=${minW}  ohne Checkpoint max=${String(gap).padStart(3)}  Mechaniken=${mech.size} (${[...mech].join(', ')})`);
+  if (L.pulse) mech.add(`Puls ${L.pulse}s`);
+  series.push({ deadly, hazards });
+  console.log(`${String(i + 1).padStart(2)} ${L.name.padEnd(16)} tödl.Spalten=${String(deadly).padStart(3)}  Gefahren=${String(hazards).padStart(3)}  schmalste Landung=${minW}  ohne Checkpoint max=${String(gap).padStart(3)}  Mechaniken=${mech.size} (${[...mech].join(', ')})`);
 }
+
+// Difficulty must rise with every level: deadly columns and hazard tiles strictly increase.
+const bad = series.slice(1).map((v, k) => [k + 2, v, series[k]]).filter(([, v, p]) => v.deadly <= p.deadly || v.hazards <= p.hazards);
+for (const [n, v, p] of bad) console.log(`FAIL level ${n} is not harder than level ${n - 1}: deadly ${p.deadly} -> ${v.deadly}, hazards ${p.hazards} -> ${v.hazards}`);
+if (!bad.length) console.log(`PASS difficulty rises strictly across all ${series.length} levels`);
+process.exit(bad.length ? 1 : 0);

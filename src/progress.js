@@ -3,7 +3,8 @@
 
 // Par times (seconds) for the "fast" star. Derived from the solver's route time per level
 // (route * 1.8 + 5, rounded up): beatable after a few attempts, not on a first blind run.
-export const PAR = [20, 24, 29, 26, 25, 23, 31, 31];
+// Levels 1-8 keep their original values so stars players already earned do not disappear.
+export const PAR = [20, 24, 29, 26, 25, 23, 31, 31, 31, 30, 36, 33, 38, 32, 38, 36, 38, 57, 43, 53, 56, 43, 39, 51, 47];
 
 // entry = { time, shards, deathless } best values for a level (any may come from different runs)
 export function starsFor(entry, levelIndex, shardTotal) {
@@ -49,8 +50,9 @@ export function decodeRun(rle) {
 }
 
 // A ghost is only valid for the exact level geometry it was recorded on.
+const PHYSICS_VERSION = 2; // bump when mechanics timings change so old ghosts are dropped
 export function levelHash(level) {
-  const s = `${level.w}x${level.h}|${level.startPhase}|${level.rows.join('/')}`;
+  const s = `${PHYSICS_VERSION}|${level.w}x${level.h}|${level.startPhase}|${level.pulse || 0}|${level.rows.join('/')}`;
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0).toString(36);
@@ -65,6 +67,7 @@ export const SKINS = {
     { id: 'moss', name: 'Moss', color: '#a6dc8f', visor: '#13210f', need: 18 },
     { id: 'gold', name: 'Gold', color: '#ffd36b', visor: '#2a1d06', need: 28 },
     { id: 'void', name: 'Void', color: '#211d2b', visor: '#3d3650', outline: true, need: 40 },
+    { id: 'prism', name: 'Prism', color: 'prism', visor: '#16131c', need: 100 },
   ],
   scarf: [
     { id: 'world', name: 'World', color: null, need: 0 }, // follows the active world colour
@@ -73,6 +76,7 @@ export const SKINS = {
     { id: 'lime', name: 'Lime', color: '#c6f432', need: 14 },
     { id: 'aurora', name: 'Aurora', color: 'aurora', need: 24 },
     { id: 'starlight', name: 'Starlight', color: 'starlight', need: 34 },
+    { id: 'comet', name: 'Comet', color: 'comet', need: 80 },
   ],
   hat: [
     { id: 'none', name: 'None', need: 0 },
@@ -80,6 +84,8 @@ export const SKINS = {
     { id: 'horns', name: 'Horns', need: 20 },
     { id: 'halo', name: 'Halo', need: 30 },
     { id: 'crown', name: 'Crown', need: 45 },
+    { id: 'lantern', name: 'Lantern', need: 60 },
+    { id: 'wings', name: 'Wings', need: 115 },
   ],
 };
 export const DEFAULT_SKIN = { body: 'paper', scarf: 'world', hat: 'none' };

@@ -11,6 +11,10 @@ export const PHYS = {
   JUMP: 700, COYOTE: 0.1, BUFFER: 0.12,
   DASH: 640, DASH_T: 0.14,
   SPRING: 1150,
+  CRUMBLE_DELAY: 0.45, // crumbling stone breaks this long after it is stepped on
+  CRUMBLE_BACK: 2.4, // ...and comes back after this long
+  ORB_CD: 2.5, // dash orb recharge time
+  PULSE_WARN: 0.4, // pulse levels: warning window before the world flips
 };
 
 const approach = (v, t, d) => (v < t ? Math.min(v + d, t) : Math.max(v - d, t));
@@ -26,6 +30,9 @@ export class World {
     this.shards = [];
     this.checkpoints = [];
     this.springs = [];
+    this.orbs = [];
+    this.crumbles = new Map(); // tile index -> { state: 0 solid | 1 shaking | 2 gone, t }
+    this.activeCrumbles = new Set();
     this.exit = null;
     let start = { x: 2, y: 2 };
     for (let y = 0; y < this.h; y++) {
@@ -36,12 +43,17 @@ export class World {
         else if (c === 'C') this.checkpoints.push({ x: x * T + T / 2, y: (y + 1) * T, active: false });
         else if (c === 'E') this.exit = { x: x * T + T / 2, y: (y + 1) * T };
         else if (c === 'S') this.springs.push({ tx: x, ty: y, anim: 0 });
+        else if (c === 'd') this.orbs.push({ i: this.orbs.length, x: x * T + T / 2, y: y * T + T / 2, cd: 0 });
+        else if (c === 'x') { this.crumbles.set(y * this.w + x, { tx: x, ty: y, state: 0, t: 0 }); continue; }
         else continue;
         this.grid[y][x] = '.';
       }
     }
     this.spawn = { x: start.x * T + (T - PHYS.W) / 2, y: (start.y + 1) * T - PHYS.H, phase: level.startPhase };
     this.phase = this.spawn.phase;
+    this.pulse = level.pulse || 0; // seconds per world in pulse levels (0 = player switches manually)
+    this.clock = 0; // keeps running while the player is dead, drives pulse levels
+    this.pulseWarned = false;
     this.events = [];
     this.time = 0;
     this.deaths = 0;
@@ -69,13 +81,81 @@ export class World {
   solid(tx, ty, phase = this.phase) {
     if (tx < 0 || tx >= this.w) return true;
     const c = this.charAt(tx, ty);
+    if (c === 'x') return this.crumbles.get(ty * this.w + tx).state !== 2;
     return c === '#' || (c === 'A' && phase === 0) || (c === 'B' && phase === 1);
+  }
+
+  // Independent copy for search/replay: the grid is shared (never mutated), all live state is copied.
+  clone() {
+    const c = Object.create(World.prototype);
+    Object.assign(c, this);
+    c.player = { ...this.player };
+    c.spawn = { ...this.spawn };
+    c.events = [];
+    c.crumbles = new Map([...this.crumbles].map(([k, v]) => [k, { ...v }]));
+    c.activeCrumbles = new Set(this.activeCrumbles);
+    c.orbs = this.orbs.map((o) => ({ ...o }));
+    c.shards = this.shards.map((o) => ({ ...o }));
+    c.checkpoints = this.checkpoints.map((o) => ({ ...o }));
+    c.springs = this.springs.map((o) => ({ ...o }));
+    return c;
+  }
+
+  // Quantised state for the solver's visited set: position/velocity buckets plus every piece of
+  // time-dependent world state that can change what happens next.
+  stateKey() {
+    const p = this.player;
+    let k = `${Math.round(p.x / 5)},${Math.round(p.y / 5)},${Math.round(p.vx / 90)},${Math.round(p.vy / 120)},${this.phase},${p.canDash ? 1 : 0},${p.onGround ? 1 : 0}`;
+    if (this.pulse) k += `|${Math.floor((this.clock % (2 * this.pulse)) / 0.1)}`;
+    if (this.activeCrumbles.size) {
+      k += `|${[...this.activeCrumbles].sort((a, b) => a - b).map((i) => { const c = this.crumbles.get(i); return `${i}:${c.state}:${Math.round(c.t * 5)}`; }).join(';')}`;
+    }
+    for (const o of this.orbs) if (o.cd > 0) k += `|o${o.i}:${Math.round(o.cd * 5)}`;
+    return k;
+  }
+
+  // Seconds until the next automatic flip (pulse levels only).
+  get pulseLeft() { return this.pulse ? this.pulse - (this.clock % this.pulse) : Infinity; }
+
+  tickWorld(dt) {
+    for (const i of this.activeCrumbles) {
+      const c = this.crumbles.get(i);
+      c.t -= dt;
+      if (c.t > 0) continue;
+      if (c.state === 1) {
+        c.state = 2;
+        c.t = PHYS.CRUMBLE_BACK;
+        this.emit('crumbleFall', { x: c.tx * T + T / 2, y: c.ty * T + T / 2 });
+      } else if (this.player.alive && overlap(this.player.x, this.player.y, PHYS.W, PHYS.H, c.tx * T, c.ty * T, T, T)) {
+        c.t = 0.1; // never reappear inside the player
+      } else {
+        c.state = 0;
+        this.activeCrumbles.delete(i);
+        this.emit('crumbleBack', { x: c.tx * T + T / 2, y: c.ty * T + T / 2 });
+      }
+    }
+    for (const o of this.orbs) if (o.cd > 0) o.cd = Math.max(0, o.cd - dt);
+    if (!this.pulse) return;
+    const want = (Math.floor(this.clock / this.pulse) % 2) ^ this.level.startPhase;
+    if (!this.pulseWarned && this.pulseLeft <= PHYS.PULSE_WARN) {
+      this.pulseWarned = true;
+      this.emit('pulseWarn', { phase: 1 - this.phase });
+    }
+    if (want !== this.phase) {
+      this.pulseWarned = false;
+      this.phase = want;
+      const p = this.player;
+      this.emit('swap', { x: p.x + PHYS.W / 2, y: p.y + PHYS.H / 2, phase: want, pulse: true });
+      if (p.alive && this.overlapsPhase(want)) this.kill(); // the world closed around the player
+    }
   }
 
   update(dt, inp) {
     const p = this.player;
     for (const s of this.springs) s.anim = Math.max(0, s.anim - dt);
     if (this.won) return;
+    this.clock += dt;
+    this.tickWorld(dt);
     if (!p.alive) {
       p.deadT -= dt;
       if (p.deadT <= 0) this.respawn();
@@ -130,6 +210,7 @@ export class World {
     const impact = p.vy;
     this.moveY(p, p.vy * dt);
     if (!wasGround && p.onGround) this.emit('land', { x: p.x + PHYS.W / 2, y: p.y + PHYS.H, v: impact });
+    if (p.onGround && this.crumbles.size) this.stepOnCrumbles(p);
 
     this.interact(p);
     if (p.y > this.h * T + 96) this.kill();
@@ -179,6 +260,21 @@ export class World {
     }
   }
 
+  stepOnCrumbles(p) {
+    const ty = Math.floor((p.y + PHYS.H + 0.5) / T);
+    const l = Math.floor(p.x / T), r = Math.floor((p.x + PHYS.W - 0.01) / T);
+    for (let tx = l; tx <= r; tx++) {
+      if (this.charAt(tx, ty) !== 'x') continue;
+      const i = ty * this.w + tx;
+      const c = this.crumbles.get(i);
+      if (c.state !== 0) continue;
+      c.state = 1;
+      c.t = PHYS.CRUMBLE_DELAY;
+      this.activeCrumbles.add(i);
+      this.emit('crumble', { x: tx * T + T / 2, y: ty * T + T / 2 });
+    }
+  }
+
   overlapsPhase(phase) {
     const p = this.player;
     const ch = phase === 0 ? 'A' : 'B';
@@ -190,6 +286,7 @@ export class World {
 
   trySwap() {
     const p = this.player;
+    if (this.pulse) { this.emit('deny', { x: p.x + PHYS.W / 2, y: p.y + PHYS.H / 2 }); return false; } // the beat decides
     const next = 1 - this.phase;
     const cx = p.x + PHYS.W / 2, cy = p.y + PHYS.H / 2;
     if (this.overlapsPhase(next)) { this.emit('deny', { x: cx, y: cy }); return false; }
@@ -223,6 +320,14 @@ export class World {
           this.kill();
           return;
         }
+      }
+    }
+
+    for (const o of this.orbs) {
+      if (o.cd <= 0 && !p.canDash && !p.onGround && Math.hypot(o.x - cx, o.y - cy) < 22) {
+        p.canDash = true;
+        o.cd = PHYS.ORB_CD;
+        this.emit('orb', { x: o.x, y: o.y });
       }
     }
 
@@ -269,7 +374,7 @@ export class World {
   }
 
   respawn() {
-    this.phase = this.spawn.phase;
+    if (!this.pulse) this.phase = this.spawn.phase; // in pulse levels the beat owns the world
     this.player = this.makePlayer();
     this.emit('respawn', { x: this.spawn.x + PHYS.W / 2, y: this.spawn.y + PHYS.H / 2 });
   }

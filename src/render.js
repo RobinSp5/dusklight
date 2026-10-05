@@ -72,6 +72,7 @@ export class Renderer {
     this.bottomPad = 0; // reserved space under the world for touch controls
     this.shakeOn = true;
     this.labelFor = (action) => action; // set by main.js: current key label or touch button symbol
+    this.lastCam = { x: 0, y: 0 };
     // player look; set from the wardrobe (see progress.js skinStyle)
     this.skin = { body: BODY, visor: '#16131c', outline: false, scarf: null, hat: 'none' };
     this.time = 0;
@@ -207,6 +208,20 @@ export class Renderer {
         this.rings.push({ x: e.x, y: e.y, r: 46, life: 0.4, max: 0.4, color: PAL[t > 0.5 ? 1 : 0].accent2, w: 2, shrink: true });
         this.sq = { x: 0.6, y: 1.4 };
         break;
+      case 'crumble':
+        this.emit(5, { x: e.x, y: e.y - 14, angle: -Math.PI / 2, spread: 2, speed: 60, color: 'rgba(200,190,210,0.6)', size: 2, g: 400, life: 0.4, jx: 26 });
+        break;
+      case 'crumbleFall':
+        this.emit(12, { x: e.x, y: e.y, angle: Math.PI / 2, spread: 1.2, speed: 90, color: 'rgba(170,160,185,0.85)', size: 4, g: 900, life: 0.8, jx: 28, jy: 20, drag: 0.5 });
+        break;
+      case 'crumbleBack':
+        this.rings.push({ x: e.x, y: e.y, r: 4, life: 0.35, max: 0.35, color: 'rgba(200,190,210,0.6)', w: 1.5, grow: 22 });
+        break;
+      case 'orb':
+        this.emit(18, { x: e.x, y: e.y, speed: 200, color: '#c9fbff', size: 2.4, life: 0.5, glow: true, drag: 3 });
+        this.rings.push({ x: e.x, y: e.y, r: 6, life: 0.45, max: 0.45, color: '#c9fbff', w: 2.5, grow: 50 });
+        this.sq = { x: 1.25, y: 0.8 };
+        break;
       case 'win':
         this.flash = 1;
         this.emit(40, { x: e.x, y: e.y, speed: 280, color: acc2, size: 3, life: 1.1, glow: true, drag: 1.5 });
@@ -259,7 +274,8 @@ export class Renderer {
   updateScarf(dt, p, time) {
     const ax = p.x + PHYS.W / 2 - p.facing * 3;
     const ay = p.y + 11;
-    if (!this.scarf) this.scarf = Array.from({ length: 7 }, (_, i) => ({ x: ax - p.facing * i * 4, y: ay, ox: ax - p.facing * i * 4, oy: ay }));
+    const len = this.skin.scarf === 'comet' ? 12 : 7;
+    if (!this.scarf || this.scarf.length !== len) this.scarf = Array.from({ length: len }, (_, i) => ({ x: ax - p.facing * i * 4, y: ay, ox: ax - p.facing * i * 4, oy: ay }));
     const s = this.scarf;
     s[0].x = s[0].ox = ax;
     s[0].y = s[0].oy = ay;
@@ -304,14 +320,17 @@ export class Renderer {
     const sy = this.shake ? (Math.random() - 0.5) * this.shake : 0;
     const cx = Math.round((cam.x + sx) * S) / S;
     const cy = Math.round((cam.y + sy) * S) / S;
+    this.lastCam = { x: cx, y: cy };
     ctx.save();
     ctx.translate(-cx, -cy);
     if (showSigns) this.drawSigns(world, t);
     this.drawPortal(world, t, time);
     this.drawCheckpoints(world, t, time);
     this.drawTiles(world, cam, t, time);
+    this.drawCrumbles(world, t, time);
     this.drawSprings(world, t);
     this.drawShards(world, t, time);
+    this.drawOrbs(world, t, time);
     if (ghost) this.drawGhost(ghost, t);
     if (showPlayer) this.drawPlayer(world, t);
     this.drawParticles();
@@ -505,9 +524,12 @@ export class Renderer {
     ctx.stroke();
 
     // phase tiles
+    const warn = world.pulse && world.pulseLeft <= PHYS.PULSE_WARN;
     for (const ch of ['A', 'B']) {
       const P = ch === 'A' ? PAL[0] : PAL[1];
-      const s = ch === 'A' ? 1 - t : t;
+      const incoming = warn && (ch === 'A') === (world.phase === 1); // the world about to arrive
+      const blink = incoming ? (this.reduced ? 0.3 : 0.4 * (0.5 + 0.5 * Math.sin(time * 38))) : 0;
+      const s = Math.min(1, (ch === 'A' ? 1 - t : t) + blink);
       const ac = rgb(P.accent), ac2 = rgb(P.accent2);
       ctx.fillStyle = css(ac, 0.07 + 0.6 * s);
       for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (g[y][x] === ch) ctx.fillRect(x * T, y * T, T, T);
@@ -596,6 +618,71 @@ export class Renderer {
         spikePath(ch, true);
         ctx.fillStyle = css(rgb(P.accent2), 0.45 * live);
         ctx.fill();
+      }
+    }
+  }
+
+  drawCrumbles(world, t, time) {
+    if (!world.crumbles.size) return;
+    const ctx = this.ctx;
+    for (const c of world.crumbles.values()) {
+      const X = c.tx * T, Y = c.ty * T;
+      if (X + T < this.lastCam.x - T || X > this.lastCam.x + this.vw + T) continue;
+      if (c.state === 2) {
+        ctx.setLineDash([2, 4]);
+        ctx.strokeStyle = 'rgba(200,190,210,0.35)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(X + 2.5, Y + 2.5, T - 5, T - 5);
+        ctx.setLineDash([]);
+        continue;
+      }
+      const shake = c.state === 1 && !this.reduced ? Math.sin(time * 70 + c.tx) * 1.6 : 0;
+      ctx.save();
+      ctx.translate(X + shake, Y);
+      ctx.fillStyle = c.state === 1 ? '#4a3f55' : '#3a3244';
+      ctx.fillRect(0, 0, T, T);
+      ctx.fillStyle = css(pal('accent', t), 0.75);
+      ctx.fillRect(0, 0, T, 2);
+      // cracks (deterministic per tile), brighter while it breaks
+      ctx.strokeStyle = c.state === 1 ? 'rgba(255,230,210,0.75)' : 'rgba(10,8,14,0.6)';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      const h = hash(c.tx, c.ty);
+      ctx.moveTo(4 + h * 10, 2); ctx.lineTo(12 + h * 6, 13); ctx.lineTo(8 + h * 12, 22); ctx.lineTo(16, 30);
+      ctx.moveTo(12 + h * 6, 13); ctx.lineTo(26, 10 + h * 8);
+      ctx.moveTo(30, 20); ctx.lineTo(22, 26 - h * 6);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawOrbs(world, t, time) {
+    const ctx = this.ctx;
+    for (const o of world.orbs) {
+      const ready = o.cd <= 0;
+      const bob = this.reduced ? 0 : Math.sin(time * 3 + o.i) * 2.5;
+      const y = o.y + bob;
+      if (ready) {
+        ctx.globalCompositeOperation = 'lighter';
+        this.drawGlow('accent2', o.x, y, 34, 0.75, t);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#e9fdff';
+        ctx.beginPath(); ctx.arc(o.x, y, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#7ef0ff';
+        ctx.lineWidth = 2;
+        const spin = this.reduced ? 0 : time * 2.4;
+        for (let k = 0; k < 3; k++) {
+          ctx.beginPath();
+          ctx.arc(o.x, y, 11, spin + (k * Math.PI * 2) / 3, spin + (k * Math.PI * 2) / 3 + 1.2);
+          ctx.stroke();
+        }
+      } else {
+        // recharging: faint core plus a ring that fills up
+        ctx.strokeStyle = 'rgba(126,240,255,0.25)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(o.x, y, 11, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(126,240,255,0.7)';
+        ctx.beginPath(); ctx.arc(o.x, y, 11, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (1 - o.cd / PHYS.ORB_CD)); ctx.stroke();
       }
     }
   }
@@ -730,7 +817,7 @@ export class Renderer {
     // scarf behind body
     if (this.scarf) {
       const sc = this.skin.scarf;
-      const starlight = sc === 'starlight';
+      const starlight = sc === 'starlight' || sc === 'comet';
       ctx.lineCap = 'round';
       if (starlight) {
         ctx.globalCompositeOperation = 'lighter';
@@ -741,6 +828,7 @@ export class Renderer {
       for (let i = 1; i < this.scarf.length; i++) {
         if (sc === 'aurora') ctx.strokeStyle = i % 2 ? PAL[0].accent : PAL[1].accent;
         else if (starlight) ctx.strokeStyle = '#fff6d6';
+        else if (sc === 'comet') ctx.strokeStyle = `rgba(205,239,255,${1 - i / this.scarf.length * 0.8})`;
         else ctx.strokeStyle = sc || css(pal('accent', t));
         ctx.lineWidth = 5 - i * 0.5;
         ctx.beginPath();
@@ -754,7 +842,7 @@ export class Renderer {
     ctx.translate(cx, by);
     ctx.scale(this.sq.x, this.sq.y);
     this.drawHat(this.skin.hat, p.facing, t, H);
-    ctx.fillStyle = this.skin.body;
+    ctx.fillStyle = this.skin.body === 'prism' ? `hsl(${(this.time * 70) % 360}, 75%, 76%)` : this.skin.body;
     ctx.beginPath();
     ctx.roundRect(-W / 2, -H, W, H, 7);
     ctx.fill();
@@ -817,6 +905,28 @@ export class Renderer {
       ctx.strokeStyle = '#ffd36b';
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(0, -H - 7 + bob, 8, 2.6, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (hat === 'lantern') {
+      const sway = this.reduced ? 0 : Math.sin(this.time * 2.2) * 2;
+      ctx.strokeStyle = this.skin.visor;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(facing * 4, -H + 1); ctx.lineTo(facing * 4 + sway, -H - 11); ctx.stroke();
+      ctx.globalCompositeOperation = 'lighter';
+      this.drawGlow('accent', facing * 4 + sway, -H - 14, 18, 0.9, t);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#ffe2a8';
+      ctx.fillRect(facing * 4 + sway - 3, -H - 18, 6, 7);
+    } else if (hat === 'wings') {
+      const flap = this.reduced ? 0 : Math.sin(this.time * 9) * 0.35;
+      ctx.fillStyle = 'rgba(243,239,231,0.9)';
+      for (const side of [-1, 1]) {
+        ctx.save();
+        ctx.translate(side * 9, -H + 10);
+        ctx.rotate(side * (0.5 + flap));
+        ctx.beginPath();
+        ctx.ellipse(side * 6, 0, 8, 3.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     } else if (hat === 'crown') {
       ctx.fillStyle = '#ffd36b';
       ctx.beginPath();
@@ -886,7 +996,7 @@ export function drawMinimap(canvas, level, deaths = []) {
   canvas.width = level.w * s;
   canvas.height = level.h * s;
   const g = canvas.getContext('2d');
-  const colors = { '#': '#3b3443', A: PAL[0].accent, B: PAL[1].accent, '^': '#ece3d6', v: '#ece3d6', a: PAL[0].accent2, b: PAL[1].accent2, '=': '#6b6075', o: '#fffaf0', E: '#ffffff', C: '#8d82a0', S: PAL[0].accent2 };
+  const colors = { '#': '#3b3443', x: '#7d718a', d: '#7ef0ff', A: PAL[0].accent, B: PAL[1].accent, '^': '#ece3d6', v: '#ece3d6', a: PAL[0].accent2, b: PAL[1].accent2, '=': '#6b6075', o: '#fffaf0', E: '#ffffff', C: '#8d82a0', S: PAL[0].accent2 };
   level.rows.forEach((row, y) => {
     for (let x = 0; x < row.length; x++) {
       const c = colors[row[x]];
