@@ -9,7 +9,7 @@ export const DEMOS = [
     id: 'move',
     title: 'Run and jump',
     body: 'Move with {left} and {right}. Hold {jump} to jump higher, tap it for a short hop.',
-    touchBody: 'Move with the arrow buttons. Hold the jump button to jump higher, tap it for a short hop.',
+    touchBody: 'Slide your thumb across the left pad to move. Hold the jump button to jump higher, tap it for a short hop.',
     keys: ['left', 'right', 'jump'],
     level: build({ name: 'demo-move', w: 24, h: H, seed: 5 }, ({ ground, put }) => {
       ground(0, 23, 7);

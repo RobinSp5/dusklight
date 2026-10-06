@@ -1,6 +1,6 @@
 import { LEVELS, ACTS, TILE as T, build } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
-import { Renderer, drawMinimap } from './render.js';
+import { Renderer, drawMinimap, VIEW_H } from './render.js';
 import { Sound } from './audio.js';
 import { Input, keyLabel, rebind, DEFAULT_BINDINGS } from './input.js';
 import { loadSettings, saveSettings } from './settings.js';
@@ -135,7 +135,7 @@ function show(name) {
   const playing = state === 'play' || state === 'pause' || state === 'complete' || (state === 'settings' && settingsFrom === 'pause');
   $('#hud').hidden = !playing;
   $('#touch').hidden = !(touchMode && state === 'play');
-  R.setBottomPad(touchMode && state === 'play' ? 120 : 0);
+  layoutTouch();
   I.enabled = state === 'play';
   updatePortraitHint();
   if (name) {
@@ -144,6 +144,24 @@ function show(name) {
   } else if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
+}
+
+// Reserve room under the world for the bottom row of touch controls so they never hide the ground
+// the player stands on; the world-switch button may float above that row. On short landscape phones
+// only part of the row is reserved (the buttons, see-through there, then cover the bedrock under the
+// player's feet but not the player) so the world stays big enough to read.
+function layoutTouch() {
+  const on = touchMode && state === 'play';
+  const overlay = innerHeight < 520;
+  document.body.classList.toggle('is-touch', touchMode);
+  $('#touch').classList.toggle('is-overlay', overlay);
+  let pad = 0;
+  if (on) {
+    const row = innerHeight - $('.t-jump').getBoundingClientRect().top + 8;
+    const keep = overlay ? row * 0.55 : row;
+    pad = Math.round((keep * VIEW_H) / Math.max(240, innerHeight - keep));
+  }
+  R.setBottomPad(pad);
 }
 
 function updatePortraitHint() {
@@ -1360,6 +1378,7 @@ addEventListener('keydown', (e) => {
 addEventListener('pointerdown', () => document.body.classList.remove('gp-nav'));
 addEventListener('keydown', () => document.body.classList.remove('gp-nav'));
 
+const buzz = () => { if (navigator.vibrate) navigator.vibrate(8); }; // tiny haptic tick where supported (Android)
 document.querySelectorAll('.t-btn').forEach((b) => {
   const act = b.dataset.act;
   const up = () => { I.setVirtual(act, false); b.classList.remove('is-down'); };
@@ -1369,6 +1388,7 @@ document.querySelectorAll('.t-btn').forEach((b) => {
     b.setPointerCapture(e.pointerId);
     I.setVirtual(act, true);
     b.classList.add('is-down');
+    buzz();
   });
   b.addEventListener('pointerup', up);
   b.addEventListener('pointercancel', up);
@@ -1379,7 +1399,47 @@ addEventListener('touchstart', () => {
   if (!touchMode) { touchMode = true; if (state === 'play') show(null); }
 }, { passive: true });
 
+// movement pad: the thumb can slide between left and right; a small dead zone in the middle stops both
+{
+  const pad = $('#tMove');
+  const halves = { left: pad.querySelector('[data-dir="left"]'), right: pad.querySelector('[data-dir="right"]') };
+  let pointer = null, last = null;
+  const steer = (x) => {
+    const r = pad.getBoundingClientRect();
+    const mid = r.left + r.width / 2, dead = r.width * 0.06;
+    const dir = x < mid - dead ? 'left' : x > mid + dead ? 'right' : null;
+    I.setVirtual('left', dir === 'left');
+    I.setVirtual('right', dir === 'right');
+    halves.left.classList.toggle('is-down', dir === 'left');
+    halves.right.classList.toggle('is-down', dir === 'right');
+    if (dir && dir !== last) buzz();
+    last = dir;
+  };
+  const release = (e) => {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    last = null;
+    I.setVirtual('left', false);
+    I.setVirtual('right', false);
+    halves.left.classList.remove('is-down');
+    halves.right.classList.remove('is-down');
+  };
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    S.init();
+    pointer = e.pointerId;
+    pad.setPointerCapture(e.pointerId);
+    steer(e.clientX);
+  });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === pointer) steer(e.clientX); });
+  pad.addEventListener('pointerup', release);
+  pad.addEventListener('pointercancel', release);
+  pad.addEventListener('lostpointercapture', release);
+  pad.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
 addEventListener('resize', () => {
+  layoutTouch();
   R.resize();
   updateCamera(1, true);
   if (ob.player) ob.player.resize();

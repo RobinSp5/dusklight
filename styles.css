@@ -676,34 +676,75 @@ body.gp-nav :is(button, input):focus { outline: 2px solid var(--accent); outline
 .phase-pill[data-phase="1"] .phase-opt[data-p="1"] { color: var(--ink); }
 
 /* ---------- touch ---------- */
+/* Touch controls scale with the screen: thumb-sized on phones, larger on tablets.
+   Left: one movement pad (slide between left and right). Right: jump in the corner, dash beside it,
+   world switch above it, so the thumb rests on jump and reaches the others with a short move. */
 .touch {
+  --t-size: clamp(68px, 12vmin, 112px);
+  --t-jump: clamp(88px, 16vmin, 144px);
+  --t-gap: clamp(10px, 2.2vmin, 22px);
   position: fixed;
   inset: auto 0 0 0;
   z-index: var(--z-touch);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  padding: 0 max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  padding: 0 max(var(--t-gap), env(safe-area-inset-right)) max(var(--t-gap), env(safe-area-inset-bottom)) max(var(--t-gap), env(safe-area-inset-left));
   pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
-.touch-side { display: flex; gap: 12px; align-items: flex-end; pointer-events: auto; }
-.t-btn {
+.touch-side { display: flex; gap: var(--t-gap); align-items: flex-end; pointer-events: auto; }
+.touch-actions {
   display: grid;
-  place-items: center;
-  width: 64px;
-  height: 64px;
-  border-radius: var(--r-pill);
-  border: 1px solid rgb(243 239 231 / 0.22);
+  grid-template-areas: ". swap" "dash jump";
+  align-items: end;
+  justify-items: center;
+}
+.t-btn, .t-move {
+  position: relative;
+  border: 1px solid rgb(243 239 231 / 0.24);
   background: rgb(21 18 27 / 0.45);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   color: var(--paper);
-  font-size: 26px;
   touch-action: none;
 }
-.t-btn.is-down { background: rgb(243 239 231 / 0.25); transform: scale(0.95); }
-.t-jump { width: 80px; height: 80px; }
-.t-swap { border-color: var(--accent); color: var(--accent); }
+.t-btn {
+  display: grid;
+  place-items: center;
+  width: var(--t-size);
+  height: var(--t-size);
+  border-radius: var(--r-pill);
+  font-size: calc(var(--t-size) * 0.4);
+  transition: transform 0.08s var(--ease), background-color 0.08s var(--ease);
+}
+/* the touch target reaches past the visible button, so a slightly missed tap still counts */
+.t-btn::before { content: ""; position: absolute; inset: calc(var(--t-gap) * -0.5); border-radius: inherit; }
+.t-btn.is-down { background: rgb(243 239 231 / 0.28); transform: scale(0.94); }
+.t-jump { grid-area: jump; width: var(--t-jump); height: var(--t-jump); font-size: calc(var(--t-jump) * 0.38); }
+.t-dash { grid-area: dash; }
+.t-swap { grid-area: swap; border-color: var(--accent); color: var(--accent); }
+.t-move {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: calc(var(--t-size) * 2.3);
+  height: calc(var(--t-size) * 1.15);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.t-half { display: grid; place-items: center; font-size: calc(var(--t-size) * 0.42); transition: background-color 0.08s var(--ease); }
+.t-half + .t-half { border-left: 1px solid rgb(243 239 231 / 0.14); }
+.t-half.is-down { background: rgb(243 239 231 / 0.28); }
+/* short landscape phones: one row on the right and see-through buttons laid over the game */
+@media (max-height: 520px) {
+  .touch-actions { grid-template-areas: "dash swap jump"; }
+}
+.touch.is-overlay .t-btn, .touch.is-overlay .t-move { background: rgb(21 18 27 / 0.28); }
+/* touch devices: HUD buttons meet the 44px minimum target size and never shrink on narrow screens */
+.hud .icon-btn { flex: none; }
+body.is-touch .hud .icon-btn { width: 44px; height: 44px; font-size: 19px; }
 
 @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
 @keyframes pop { from { opacity: 0; transform: scale(0.96) translateY(8px); } to { opacity: 1; transform: none; } }

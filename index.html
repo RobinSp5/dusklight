@@ -195,7 +195,7 @@
           <p class="ob-step" id="obStep">Step 1 of 4</p>
           <h2 id="obTitle">Run and jump</h2>
           <p class="ob-body" id="obBody"></p>
-          <p class="ob-touch" id="obTouch" hidden>On touch screens, use the buttons at the bottom of the screen.</p>
+          <p class="ob-touch" id="obTouch" hidden>On touch screens, slide your thumb across the left pad to move; jump, dash and switch are on the right.</p>
         </div>
         <div class="ob-nav">
           <button class="btn btn-ghost" id="obSkip" type="button">Skip tutorial</button>
@@ -274,13 +274,16 @@
   </main>
 
   <div class="touch" id="touch" hidden>
+    <!-- one movement pad: slide the thumb between left and right without lifting it -->
     <div class="touch-side">
-      <button type="button" class="t-btn" data-act="left" aria-label="Move left"><i class="ph-bold ph-caret-left" aria-hidden="true"></i></button>
-      <button type="button" class="t-btn" data-act="right" aria-label="Move right"><i class="ph-bold ph-caret-right" aria-hidden="true"></i></button>
+      <div class="t-move" id="tMove" role="group" aria-label="Move left or right">
+        <span class="t-half" data-dir="left"><i class="ph-bold ph-caret-left" aria-hidden="true"></i></span>
+        <span class="t-half" data-dir="right"><i class="ph-bold ph-caret-right" aria-hidden="true"></i></span>
+      </div>
     </div>
-    <div class="touch-side">
+    <div class="touch-side touch-actions">
       <button type="button" class="t-btn t-swap" data-act="swap" aria-label="Switch world"><i class="ph-bold ph-swap" aria-hidden="true"></i></button>
-      <button type="button" class="t-btn" data-act="dash" aria-label="Dash"><i class="ph-bold ph-lightning" aria-hidden="true"></i></button>
+      <button type="button" class="t-btn t-dash" data-act="dash" aria-label="Dash"><i class="ph-bold ph-lightning" aria-hidden="true"></i></button>
       <button type="button" class="t-btn t-jump" data-act="jump" aria-label="Jump"><i class="ph-bold ph-arrow-fat-up" aria-hidden="true"></i></button>
     </div>
   </div>
