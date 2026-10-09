@@ -1263,6 +1263,41 @@ body.is-touch .hud .icon-btn { width: 44px; height: 44px; font-size: 19px; }
 .unlock-note { transition: opacity 0.4s var(--ease), transform 0.4s var(--ease); }
 .unlock-note.is-waiting { visibility: hidden; opacity: 0; transform: translateY(6px); }
 
+/* ---------- level packs: tabs in the level select, Hardcore rewards ---------- */
+.pack-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.pack-tab { display: inline-flex; align-items: center; gap: 10px; padding: 10px 16px; }
+.pack-tab[aria-selected="true"] .tab-count { opacity: 1; }
+.pack-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.hc-rewards { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 20px; }
+.reward-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgb(255 211 107 / 0.4);
+  background: rgb(255 211 107 / 0.08);
+  color: var(--paper);
+  font: 600 14px/1.2 'Outfit', sans-serif;
+  touch-action: manipulation;
+}
+button.reward-chip { cursor: pointer; transition: border-color 0.2s var(--ease), background-color 0.2s var(--ease); }
+button.reward-chip:hover { border-color: var(--accent); }
+.reward-chip i { color: #ffd36b; font-size: 17px; }
+.reward-chip.is-worn { background: rgb(255 211 107 / 0.18); border-color: #ffd36b; }
+.reward-chip.is-locked { border-color: rgb(243 239 231 / 0.14); background: rgb(21 18 27 / 0.6); color: var(--muted); }
+.reward-chip.is-locked i { color: var(--muted); }
+.reward-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.reward { margin-top: 18px; padding: 16px 18px; border-radius: 14px; background: rgb(255 211 107 / 0.07); border: 1px solid rgb(255 211 107 / 0.3); }
+.reward-kicker { font: 600 12px/1.2 'JetBrains Mono', monospace; letter-spacing: 0.04em; text-transform: uppercase; color: #ffd36b; }
+.reward-name { margin-top: 6px; font: 700 22px/1.15 'Unbounded', sans-serif; letter-spacing: -0.02em; }
+.reward-note { margin-top: 6px; color: var(--muted); font-size: 15px; line-height: 1.45; }
+@media (max-width: 560px) {
+  .select-head { flex-wrap: wrap; }
+  .pack-tabs { width: 100%; margin-left: 0; }
+}
+
 /* short wide screens (phones in landscape): stats left, earnings right */
 @media (min-width: 720px) and (max-height: 620px) {
   .panel-complete {
@@ -1274,7 +1309,7 @@ body.is-touch .hud .icon-btn { width: 44px; height: 44px; font-size: 19px; }
     padding: 24px;
   }
   .panel-complete > * { grid-column: 1; }
-  .panel-complete > .earn { grid-column: 2; grid-row: 1 / span 7; margin-top: 0; }
+  .panel-complete > .earn, .panel-complete > .reward { grid-column: 2; grid-row: 1 / span 7; margin-top: 0; }
   .panel-complete > .actions { margin-top: 16px; }
   .panel-complete > .unlock-note { margin-top: 14px; font-size: 14px; }
   .panel-complete .stars-row { margin-top: 12px; gap: 6px; }

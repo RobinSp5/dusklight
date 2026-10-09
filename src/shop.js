@@ -176,8 +176,10 @@ export function goalItem(shop) {
 }
 
 // Look object for the renderer, built from the equipped items' styles (unknown ids fall back to defaults).
-export function lookFor(equipped) {
+// overrides = optional { slot: style } that replaces a slot's style (Hardcore rewards; the shop's own data stays untouched).
+export function lookFor(equipped, overrides) {
   const pick = (slot) => {
+    if (overrides && overrides[slot]) return overrides[slot];
     const item = BY_ID.get(equipped && equipped[slot]);
     return (item && item.slot === slot ? item : BY_ID.get(DEFAULT_EQUIP[slot])).style;
   };

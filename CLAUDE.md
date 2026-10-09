@@ -20,7 +20,8 @@
 npm start              # node server.mjs → http://localhost:5173 (Cache-Control: no-store)
 npm test               # Unit-Tests, Fairness, Tutorial-Demos, Solver (~2 Min.)
 node tests/profile.mjs # Schwierigkeitsprofil pro Level
-ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
+ONLY=5 node tests/solve.mjs   # Solver nur für ein Level der Kampagne
+PACK=hc node tests/solve.mjs  # Solver nur für das Hardcore-Paket (PACK=main für die Kampagne; ohne PACK laufen alle Pakete)
 ```
 
 ## Architektur
@@ -30,6 +31,8 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 - Mechaniken: Phasen-Tiles `A`/`B`, Dornen `^ v a b`, Feder `S`, Einweg `=`, Bröckelstein `x`, Dash-Orb `d`, Puls-Level (`pulse: s`, Welt wechselt im Takt, manueller Wechsel aus).
 - `src/render.js` – Renderer (Parallax, Phasen-Blend, Partikel, Skins, Ghost). `new Renderer(canvas, { fit, viewH, minW })` für kleine Canvases.
 - `src/progress.js` – Sterne/Par, Ghost-RLE, Todes-Log, Sanitizer für localStorage (rein, getestet).
+- `src/levels-hardcore.js` – **Hardcore-Paket** (`HARDCORE`), eigenständig und **nicht** in `LEVELS`. Level-Meta zusätzlich: `twist: { id, … }` (Regel-Twist, Haken in `world.js`: `registerTwist`, Zustand in `clone()`/`stateKey()` über `clone`/`key` der Implementierung) und `reward: { id, slot, name, desc, style }` (genau eine einzigartige Kosmetik-Belohnung pro Level, nur im Hardcore-Save). Par-Zeiten in `PAR_HC` (`progress.js`).
+- `src/packs.js` – Pakete (`PACKS.main` = Kampagne, `PACKS.hc` = Hardcore): eigene Storage-Keys (`dusklight.hc.save.v1`, `dusklight.hc.ghosts.v1`, `dusklight.hc.deaths.v1`), Par, Sterne, Bestzeiten, Ghost, Todes-Karte, Belohnungen. Hardcore liest/schreibt **nie** Kampagnen-Keys und zahlt nichts in den Shop ein. Rein, getestet in `tests/packs.mjs` (u. a. Snapshot: Kampagnen-Keys, Level-Hashes und Simulation unverändert).
 - `src/shop.js` – Splitter-Währung: Katalog (42 Items, 6 Slots, 4 Tiers), `earnings(run)`, Kauf/Ausrüsten/Ziel, Sanitize, Migration alter Skins (rein, `tests/shop.mjs`). Gespeichert unter eigenem Key `dusklight.shop.v1`.
 - `src/cosmetics.js` – Farbthemen (`THEMES`) und das Zeichnen von Körpern, Schals, Hüten, Spuren, Todeseffekten; `renderer.setLook()`/`setTheme()`.
 - `src/input.js` – frei belegbare Tasten (`normalizeBindings`/`rebind`: keine Taste doppelt, Esc pausiert immer), Gamepad inkl. Menünavigation.
@@ -39,6 +42,7 @@ ONLY=5 node tests/solve.mjs   # Solver nur für ein Level
 ## Regeln, die beim Ändern gelten
 
 1. **Level geändert →** `npm test` muss grün sein: Solver (jedes Level schaffbar, jeder Splitter erreichbar; segmentweise über Checkpoints, parallel auf allen Kernen), `tests/fairness.mjs` (keine Deckendornen-Entscheidung um wenige Pixel) und `tests/profile.mjs` (tödliche Spalten und Gefahren steigen von Level 1 bis 25 **streng** an, sonst Exit 1). Par-Zeiten in `src/progress.js` aus `JSON=1 node tests/solve.mjs` ableiten (Route × 1,8 + 5).
+1a. **Hardcore-Level →** Twist auf einem Schild im ersten Abschnitt erklären, harmloser Übungsbereich am Anfang, kein Zufall, Checkpoint mindestens alle ~25 Tiles; `reward` eintragen, `PAR_HC` aus `JSON=1 PACK=hc node tests/solve.mjs` ableiten. `profile.mjs`/`solve.mjs`/`fairness.mjs` laufen pro Paket, der strenge Anstieg gilt nur innerhalb des Pakets.
 1b. **Neue Mechanik →** in `world.js` deterministisch, Zustand in `clone()` und `stateKey()` aufnehmen, Unit-Test in `tests/mechanics.mjs`.
 2. **Neues Modul in `src/` →** in die Import-Map in `index.html` eintragen (`tests/importmap.mjs` prüft das, sonst bricht der Deploy ab).
 3. **Neues Icon →** Klasse `ph-…` in `assets/icons/icons.css` ergänzen (getrimmte, selbst gehostete Phosphor-CSS; `tests/icons.mjs` prüft das).

@@ -58,8 +58,10 @@
         <div class="select-head">
           <button class="icon-btn icon-btn-lg" id="btnBack" type="button" aria-label="Back to title"><i class="ph-bold ph-arrow-left" aria-hidden="true"></i></button>
           <h2 id="selectTitle">Select level</h2>
+          <div class="pack-tabs" id="packTabs" role="tablist" aria-label="Level packs"></div>
         </div>
-        <div class="level-grid" id="levelGrid"></div>
+        <div class="hc-rewards" id="hcRewards" aria-label="Hardcore Pack rewards" hidden></div>
+        <div class="level-grid" id="levelGrid" role="tabpanel"></div>
       </div>
     </section>
 
@@ -156,6 +158,7 @@
               <div class="actions set-actions">
                 <button class="btn" id="btnReplayTutorial" type="button">Replay tutorial</button>
                 <button class="btn btn-danger" id="btnReset" type="button">Reset progress</button>
+                <button class="btn btn-danger" id="btnResetHc" type="button">Reset Hardcore progress</button>
               </div>
               <div class="confirm" id="resetConfirm" role="alertdialog" aria-labelledby="resetText" hidden>
                 <p id="resetText">Delete all best times and lock levels 2 to 8 again? This cannot be undone.</p>
@@ -249,6 +252,11 @@
           </div>
           <p class="sr-only" id="earnSummary" role="status"></p>
         </section>
+        <section class="reward" id="hcReward" aria-labelledby="hcRewardKicker" hidden>
+          <p class="reward-kicker" id="hcRewardKicker">Reward</p>
+          <p class="reward-name" id="hcRewardName"></p>
+          <p class="reward-note" id="hcRewardNote"></p>
+        </section>
         <p class="unlock-note" id="unlockNote" hidden><i class="ph-bold ph-sparkle" aria-hidden="true"></i><span id="unlockText"></span></p>
         <div class="actions">
           <button class="btn btn-primary" id="btnNext" type="button" data-autofocus>Next level</button>
@@ -314,7 +322,9 @@
       "./src/levels-act5.js": "./src/levels-act5.js?v=__V__",
       "./src/levels-act6.js": "./src/levels-act6.js?v=__V__",
       "./src/shop.js": "./src/shop.js?v=__V__",
-      "./src/cosmetics.js": "./src/cosmetics.js?v=__V__"
+      "./src/cosmetics.js": "./src/cosmetics.js?v=__V__",
+      "./src/levels-hardcore.js": "./src/levels-hardcore.js?v=__V__",
+      "./src/packs.js": "./src/packs.js?v=__V__"
     }
   }
   </script>

@@ -1,11 +1,13 @@
 // Proves every level can be finished and every shard reached, using the real World simulation.
 // Best-first search over 8-frame macro actions, split into segments between checkpoints
 // (with backtracking over several arrival states per segment), then a targeted search per shard.
-//   ONLY=9,10 node tests/solve.mjs     solve selected levels
+//   ONLY=9,10 node tests/solve.mjs     solve selected levels (numbers within the chosen packs)
+//   PACK=hc node tests/solve.mjs       solve one pack (main = campaign, hc = Hardcore Pack); default: all packs,
+//                                      or only the campaign when ONLY is given without PACK
 //   JSON=1 ...                          also print machine-readable results (route seconds for par times)
 import { fork } from 'node:child_process';
 import { availableParallelism } from 'node:os';
-import { LEVELS } from '../src/levels.js';
+import { PACKS, PACK_LIST } from '../src/packs.js';
 import { World, STEP, PHYS } from '../src/world.js';
 
 const FRAMES = Number(process.env.FRAMES || 8);
@@ -13,6 +15,11 @@ const SEG_LIMIT = Number(process.env.LIMIT || 250000);
 const BRANCH = 6; // arrival states kept per segment for backtracking
 const SHARD_SEEDS = 3;
 const ONLY = process.env.ONLY ? process.env.ONLY.split(',').map(Number) : null;
+const PACK_IDS = process.env.PACK ? process.env.PACK.split(',') : ONLY ? ['main'] : PACK_LIST.map((p) => p.id);
+// one job per level of every chosen pack; `n` is the level number within its pack
+const JOBS = PACK_LIST.filter((p) => PACK_IDS.includes(p.id)).flatMap((p) => p.levels.map((level, i) => ({ pack: p, level, i, n: i + 1 })))
+  .filter((j) => !ONLY || ONLY.includes(j.n));
+const tag = (j) => (j.pack.id === 'main' ? '' : `${j.pack.id.toUpperCase()} `);
 
 const ACTIONS = [];
 for (const dir of [1, -1, 0]) for (const jump of [0, 1]) for (const dash of [0, 1]) for (const swap of [0, 1]) ACTIONS.push({ dir, jump, dash, swap });
@@ -140,44 +147,43 @@ function solveLevel(level, index) {
   };
 }
 
-function report(i, r, ms) {
+function report(j, r, ms) {
   const ok = r.finished && r.shards === r.total;
-  console.log(`${ok ? 'PASS' : 'FAIL'}  Level ${String(i + 1).padStart(2)} ${LEVELS[i].name.padEnd(16)} route=${r.seconds ? r.seconds.toFixed(1) + 's' : '-'} shards=${r.shards}/${r.total} expansions=${r.expansions} (${(ms / 1000).toFixed(0)}s)`);
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${tag(j)}Level ${String(j.n).padStart(2)} ${j.level.name.padEnd(16)} route=${r.seconds ? r.seconds.toFixed(1) + 's' : '-'} shards=${r.shards}/${r.total} expansions=${r.expansions} (${(ms / 1000).toFixed(0)}s)`);
   if (!r.finished) console.log('        no route to the exit');
   for (const [x, y] of r.missing) console.log(`        unreachable shard at tile ${x},${y}`);
   return ok;
 }
 
-const wanted = LEVELS.map((_, i) => i).filter((i) => !ONLY || ONLY.includes(i + 1));
-
 if (process.env.SOLVE_WORKER) {
-  // child process: solve one level, send the result to the parent
+  // child process: solve one level (SOLVE_WORKER = index, SOLVE_PACK = pack id), send the result to the parent
   const i = Number(process.env.SOLVE_WORKER);
   const t0 = Date.now();
-  process.send({ i, r: solveLevel(LEVELS[i], i), ms: Date.now() - t0 }, () => process.exit(0));
+  process.send({ i, r: solveLevel(PACKS[process.env.SOLVE_PACK].levels[i], i), ms: Date.now() - t0 }, () => process.exit(0));
 } else {
   // parent: one child process per level, as many at once as there are CPU cores
-  const results = new Array(LEVELS.length);
-  const queue = [...wanted];
+  const results = new Array(JOBS.length);
+  const queue = JOBS.map((j, k) => k);
   let running = 0, failed = 0;
   await new Promise((resolve) => {
     const next = () => {
       if (!queue.length && !running) return resolve();
       while (running < Math.max(1, availableParallelism() - 1) && queue.length) {
-        const i = queue.shift();
+        const k = queue.shift();
+        const j = JOBS[k];
         running++;
-        const child = fork(new URL(import.meta.url).pathname, [], { env: { ...process.env, SOLVE_WORKER: String(i) }, execArgv: ['--max-old-space-size=6000'] });
-        child.on('message', (m) => { results[m.i] = m; });
+        const child = fork(new URL(import.meta.url).pathname, [], { env: { ...process.env, SOLVE_WORKER: String(j.i), SOLVE_PACK: j.pack.id }, execArgv: ['--max-old-space-size=6000'] });
+        child.on('message', (m) => { results[k] = m; });
         child.on('close', () => {
           running--;
-          const m = results[i];
-          if (!m) { failed++; console.log(`FAIL  Level ${i + 1} worker crashed`); } else if (!report(m.i, m.r, m.ms)) failed++;
+          const m = results[k];
+          if (!m) { failed++; console.log(`FAIL  ${tag(j)}Level ${j.n} worker crashed`); } else if (!report(j, m.r, m.ms)) failed++;
           next();
         });
       }
     };
     next();
   });
-  if (process.env.JSON) console.log(JSON.stringify(results.filter(Boolean).map((m) => ({ level: m.i + 1, name: LEVELS[m.i].name, ...m.r }))));
+  if (process.env.JSON) console.log(JSON.stringify(results.map((m, k) => m && ({ pack: JOBS[k].pack.id, level: m.i + 1, name: JOBS[k].level.name, ...m.r })).filter(Boolean)));
   process.exit(failed ? 1 : 0);
 }
