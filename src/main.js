@@ -654,22 +654,29 @@ let selected = PACKS.main; // pack shown in the level list
 const lockedIn = (p, i) => i > cur(p).prog.unlocked;
 
 function buildPackTabs() {
-  $('#packTabs').replaceChildren(...PACK_LIST.map((p) => {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'tab pack-tab';
-    b.id = `packTab-${p.id}`;
-    b.dataset.pack = p.id;
-    b.setAttribute('role', 'tab');
-    b.setAttribute('aria-controls', 'levelGrid');
+  const box = $('#packTabs');
+  // Update the tabs in place: replacing them would drop keyboard focus (pack click, storage event from another tab).
+  const tabs = PACK_LIST.map((p) => {
+    let b = box.querySelector(`#packTab-${p.id}`);
+    if (!b) {
+      b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tab pack-tab';
+      b.id = `packTab-${p.id}`;
+      b.dataset.pack = p.id;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-controls', 'levelGrid');
+      b.append(p.name, Object.assign(document.createElement('span'), { className: 'tab-count' }));
+      b.addEventListener('click', () => selectPack(p.id));
+    }
     b.setAttribute('aria-selected', String(p === selected));
     b.tabIndex = p === selected ? 0 : -1;
     const stars = packStars(p, cur(p).prog);
-    b.append(p.name, Object.assign(document.createElement('span'), { className: 'tab-count', textContent: `${stars}/${p.levels.length * 3}` }));
+    b.querySelector('.tab-count').textContent = `${stars}/${p.levels.length * 3}`;
     b.setAttribute('aria-label', `${p.name}, ${stars} of ${p.levels.length * 3} stars`);
-    b.addEventListener('click', () => selectPack(p.id));
     return b;
-  }));
+  });
+  if (tabs.some((b, i) => box.children[i] !== b)) box.replaceChildren(...tabs);
   $('#levelGrid').setAttribute('aria-labelledby', `packTab-${selected.id}`);
 }
 
@@ -1082,7 +1089,10 @@ function previewItem(id) {
   if (!shopUI.player) return;
   shopUI.preview = item ? item.id : null;
   const eq = save.shop.equip;
-  const look = lookFor(item ? { ...eq, [item.slot]: item.id } : eq);
+  // The worn Hardcore rewards show as in the game; a tried-on item replaces its own slot's reward only.
+  const worn = rewardStyles(hc.prog);
+  if (item) delete worn[item.slot];
+  const look = lookFor(item ? { ...eq, [item.slot]: item.id } : eq, worn);
   const r = shopUI.player.renderer;
   r.setLook(look);
   r.setTheme(look.theme);
