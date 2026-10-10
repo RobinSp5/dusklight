@@ -17,6 +17,16 @@ export const PHYS = {
   PULSE_WARN: 0.4, // pulse levels: warning window before the world flips
 };
 
+// Level twists (Hardcore Pack): a level names one with `twist: { id, ...params }` in its meta. A twist is
+// registered once with registerTwist(id, impl); impl may define any of
+//   init(world)        after the grid is parsed, to set up twist state on `world.tw`
+//   tick(world, dt)    every simulation step (also while the player is dead), after the world ticked, before the player moves
+//   key(world)         extra string for stateKey(): everything in `world.tw` that changes what happens next
+//   clone(src, copy)   deep-copy `world.tw` into `copy.tw` (clone() shares nothing mutable)
+// Levels without a twist never touch this, so existing levels behave exactly as before.
+export const TWISTS = {};
+export function registerTwist(id, impl) { TWISTS[id] = impl; }
+
 const approach = (v, t, d) => (v < t ? Math.min(v + d, t) : Math.max(v - d, t));
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
 
@@ -59,7 +69,11 @@ export class World {
     this.deaths = 0;
     this.collected = 0;
     this.won = false;
+    this.twist = level.twist ? { ...level.twist } : null; // level meta, never mutated
+    this.twistImpl = this.twist ? TWISTS[this.twist.id] || null : null;
+    this.tw = null; // live twist state, owned by the twist implementation
     this.player = this.makePlayer();
+    if (this.twistImpl && this.twistImpl.init) this.twistImpl.init(this);
   }
 
   makePlayer() {
@@ -98,6 +112,7 @@ export class World {
     c.shards = this.shards.map((o) => ({ ...o }));
     c.checkpoints = this.checkpoints.map((o) => ({ ...o }));
     c.springs = this.springs.map((o) => ({ ...o }));
+    if (this.twistImpl && this.twistImpl.clone) this.twistImpl.clone(this, c);
     return c;
   }
 
@@ -111,6 +126,7 @@ export class World {
       k += `|${[...this.activeCrumbles].sort((a, b) => a - b).map((i) => { const c = this.crumbles.get(i); return `${i}:${c.state}:${Math.round(c.t * 5)}`; }).join(';')}`;
     }
     for (const o of this.orbs) if (o.cd > 0) k += `|o${o.i}:${Math.round(o.cd * 5)}`;
+    if (this.twistImpl && this.twistImpl.key) k += `|t${this.twistImpl.key(this)}`;
     return k;
   }
 
@@ -156,6 +172,7 @@ export class World {
     if (this.won) return;
     this.clock += dt;
     this.tickWorld(dt);
+    if (this.twistImpl && this.twistImpl.tick) this.twistImpl.tick(this, dt);
     if (!p.alive) {
       p.deadT -= dt;
       if (p.deadT <= 0) this.respawn();

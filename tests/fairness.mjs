@@ -2,7 +2,8 @@
 // misses or touches the spike hitbox by only a few pixels. Such outcomes are unreadable:
 // a good spot is clearly deadly (overlap >= 12 px) or clearly safe (clearance >= 12 px).
 // Uses the real World; 'v' contact is measured instead of killing so the full arc is seen.
-import { LEVELS, TILE as T } from '../src/levels.js';
+import { TILE as T } from '../src/levels.js';
+import { PACK_LIST } from '../src/packs.js';
 import { World, STEP, PHYS } from '../src/world.js';
 
 const NEAR = 11; // |margin| <= NEAR px is a near miss
@@ -58,14 +59,15 @@ const input = (dir, held, pressed) => ({
 
 const rows = [];
 const info = [];
-for (const [li, level] of LEVELS.entries()) {
+// every pack is audited; hardcore levels are labelled HC1, HC2, ...
+for (const [li, level, label] of PACK_LIST.flatMap((p) => p.levels.map((lv, i) => [i, lv, p.id === 'main' ? '' : `${p.id.toUpperCase()}`]))) {
   const base = new Probe(level, li);
   const phases = level.rows.some((r) => /[ABab]/.test(r)) ? [0, 1] : [0];
   // one row per (level, tile): worst near miss plus every phase/kind that produced a near miss
   const spots = new Map();
   const note = (tile, phase, kind, margin) => {
     if (Math.abs(margin) > NEAR) return;
-    const r = spots.get(tile) ?? { level: li + 1, tile, phases: new Set(), kinds: new Set(), margin };
+    const r = spots.get(tile) ?? { level: `${label}${li + 1}`, tile, phases: new Set(), kinds: new Set(), margin };
     r.phases.add(phase); r.kinds.add(kind);
     if (Math.abs(margin) < Math.abs(r.margin)) r.margin = margin;
     spots.set(tile, r);
@@ -118,7 +120,7 @@ for (const [li, level] of LEVELS.entries()) {
         Object.assign(w.player, { x: s.tx * T + (T - PHYS.W) / 2, y: (s.ty + 1) * T - PHYS.H, vx: dir * PHYS.RUN * v0, vy: 0 });
         const { min, bonk } = run(w, input(dir, held, false), input(dir, held, false), false);
         const kind = `spring ${dir === 0 ? 'still' : dir < 0 ? 'L' : 'R'}${v0 && dir ? ' running' : ''} ${held ? 'held' : 'no-hold'}`;
-        if (bonk) info.push(`L${li + 1} phase ${phase} spring ${s.tx},${s.ty}: ${kind} bumps a stone ceiling (harmless)`);
+        if (bonk) info.push(`L${label}${li + 1} phase ${phase} spring ${s.tx},${s.ty}: ${kind} bumps a stone ceiling (harmless)`);
         if (min === null) continue;
         note(`${s.tx},${s.ty}`, phase, kind, Math.round(min));
       }

@@ -6,10 +6,14 @@
 // Levels 1-8 keep their original values so stars players already earned do not disappear.
 export const PAR = [20, 24, 29, 26, 25, 23, 31, 31, 31, 30, 36, 33, 38, 32, 38, 36, 38, 57, 43, 53, 56, 43, 39, 51, 47];
 
-// entry = { time, shards, deathless } best values for a level (any may come from different runs)
-export function starsFor(entry, levelIndex, shardTotal) {
+// Par times of the Hardcore Pack (src/levels-hardcore.js), same rule: route * 1.8 + 5 from `JSON=1 PACK=hc node tests/solve.mjs`.
+// One entry per level in HARDCORE, in order (tests/packs.mjs checks the length).
+export const PAR_HC = [16];
+
+// entry = { time, shards, deathless } best values for a level (any may come from different runs); par defaults to the campaign's
+export function starsFor(entry, levelIndex, shardTotal, par = PAR) {
   if (!entry) return { fast: false, shards: false, deathless: false, count: 0 };
-  const fast = entry.time <= PAR[levelIndex];
+  const fast = entry.time <= par[levelIndex];
   const shards = entry.shards >= shardTotal;
   const deathless = !!entry.deathless;
   return { fast, shards, deathless, count: (fast ? 1 : 0) + (shards ? 1 : 0) + (deathless ? 1 : 0) };
@@ -52,7 +56,9 @@ export function decodeRun(rle) {
 // A ghost is only valid for the exact level geometry it was recorded on.
 const PHYSICS_VERSION = 2; // bump when mechanics timings change so old ghosts are dropped
 export function levelHash(level) {
-  const s = `${PHYSICS_VERSION}|${level.w}x${level.h}|${level.startPhase}|${level.pulse || 0}|${level.rows.join('/')}`;
+  // a twist changes how the same geometry plays; levels without one keep their original hash (and their ghosts)
+  const twist = level.twist ? `|${JSON.stringify(level.twist)}` : '';
+  const s = `${PHYSICS_VERSION}|${level.w}x${level.h}|${level.startPhase}|${level.pulse || 0}|${level.rows.join('/')}${twist}`;
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return (h >>> 0).toString(36);

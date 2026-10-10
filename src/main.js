@@ -1,4 +1,4 @@
-import { LEVELS, ACTS, TILE as T, build } from './levels.js';
+import { LEVELS, TILE as T, build } from './levels.js';
 import { World, STEP, PHYS } from './world.js';
 import { Renderer, drawMinimap, VIEW_H } from './render.js';
 import { Sound } from './audio.js';
@@ -7,13 +7,14 @@ import { loadSettings, saveSettings } from './settings.js';
 import { DEMOS, SHOWCASE, demoBody } from './demos.js';
 import { DemoPlayer } from './demo-player.js';
 import {
-  PAR, starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash, addDeath, sanitizeGhosts, sanitizeDeaths,
+  starsFor, inputToMask, maskToInput, encodeRun, decodeRun, levelHash, addDeath, sanitizeGhosts, sanitizeDeaths,
 } from './progress.js';
 import {
   SLOTS, SLOT_NAMES, TIERS, CATALOG, itemById, newShop, sanitizeShop, migrateFromSkins,
   earnings, deposit, buy, equip, setGoal, goalItem, lookFor,
 } from './shop.js';
 import { THEMES } from './cosmetics.js';
+import { PACKS, PACK_LIST, loadPack, recordClear, toggleEquip, rewardStyles, rewardsOf, rewardForLevel, packStars, newHc } from './packs.js';
 
 const $ = (s) => document.querySelector(s);
 const settings = loadSettings();
@@ -39,9 +40,7 @@ const TOUCH_SIGN = { left: '◀', right: '▶', jump: '[↑]', dash: '[↯]', sw
 const signLabel = (action) => (touchMode ? TOUCH_SIGN[action] : primaryLabel(action));
 
 // ---------- persistent data ----------
-const SAVE_KEY = 'zwielicht.save.v1'; // key kept from the first release so existing progress survives the rename
-const GHOST_KEY = 'dusklight.ghosts.v1';
-const DEATH_KEY = 'dusklight.deaths.v1';
+const { save: SAVE_KEY, ghosts: GHOST_KEY, deaths: DEATH_KEY } = PACKS.main.keys; // campaign keys (the Hardcore Pack has its own, see packs.js)
 const readJSON = (key) => { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } };
 const writeJSON = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
 
@@ -82,6 +81,12 @@ const writeSave = () => {
 if (migratedOnLoad) writeSave(); // persist a migration right away, so the welcome balance is granted exactly once
 // another tab changed the save or the shop: adopt it instead of overwriting it later with stale data
 addEventListener('storage', (e) => {
+  if (Object.values(PACKS.hc.keys).includes(e.key)) {
+    Object.assign(hc, loadPack(readJSON));
+    applyLook();
+    if (state === 'select') buildSelect();
+    return;
+  }
   if (e.key !== SAVE_KEY && e.key !== SHOP_KEY) return;
   save = loadSave();
   applyLook();
@@ -90,9 +95,14 @@ addEventListener('storage', (e) => {
 });
 let ghosts = sanitizeGhosts(readJSON(GHOST_KEY));
 let deaths = sanitizeDeaths(readJSON(DEATH_KEY));
-const shardCount = LEVELS.map((l) => l.rows.join('').split('o').length - 1);
+// Hardcore Pack: its own progress, ghosts and death map under its own keys; never mixed with the campaign's.
+const hc = loadPack(readJSON); // { prog, ghosts, deaths }
+let pack = PACKS.main; // the pack of the level being played (and of the title backdrop)
+const cur = (p = pack) => (p.id === 'hc' ? hc : { prog: save, ghosts, deaths }); // that pack's { prog, ghosts, deaths }
+const SHARDS = Object.fromEntries(PACK_LIST.map((p) => [p.id, p.levels.map((l) => l.rows.join('').split('o').length - 1)]));
+const shardCount = SHARDS.main;
 const totalShards = shardCount.reduce((a, b) => a + b, 0);
-const starsOf = (i) => starsFor(save.best[i], i, shardCount[i]);
+const starsOf = (i, p = pack) => starsFor(cur(p).prog.best[i], i, SHARDS[p.id][i], p.par);
 
 const secFmt = new Intl.NumberFormat('en-US', { minimumIntegerDigits: 2, minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const fmt = (t) => {
@@ -176,7 +186,7 @@ function setAccent(p) {
 
 // Equipped look + theme on every renderer (main, tutorial, shop preview) and the UI colours.
 function applyLook() {
-  const look = lookFor(save.shop.equip);
+  const look = lookFor(save.shop.equip, rewardStyles(hc.prog)); // worn Hardcore rewards sit on top of the shop look
   for (const r of [R, ob.player && ob.player.renderer, shopUI.player && shopUI.player.renderer]) {
     if (!r) continue;
     r.setLook(look);
@@ -216,9 +226,11 @@ function updateWallet(from) {
 }
 
 // ---------- levels ----------
-function startLevel(i) {
+function startLevel(i, packId = pack.id) {
   S.init();
-  world = new World(LEVELS[i], i);
+  pack = PACKS[packId] || pack;
+  const lv = pack.levels[i];
+  world = new World(lv, i);
   R.setLevel(world);
   phaseT = world.phase;
   setAccent(world.phase);
@@ -227,14 +239,14 @@ function startLevel(i) {
   acc = 0;
   runMasks = [];
   ghost = null;
-  const g = ghosts[i];
-  if (settings.ghost && g && g.hash === levelHash(LEVELS[i])) ghost = { world: new World(LEVELS[i], i), masks: decodeRun(g.rle), k: 0 };
+  const g = cur().ghosts[i];
+  if (settings.ghost && g && g.hash === levelHash(lv)) ghost = { world: new World(lv, i), masks: decodeRun(g.rle), k: 0 };
   state = 'play';
   I.clearEdges();
   show(null);
   snapCamera();
   hudCache = {};
-  $('#hudLevel').textContent = `${i + 1}  ${LEVELS[i].name}`;
+  $('#hudLevel').textContent = `${pack.id === 'hc' ? 'HC ' : ''}${i + 1}  ${lv.name}`;
   $('#phasePill').classList.toggle('is-pulse', !!world.pulse);
   document.querySelector('.t-swap').hidden = !!world.pulse; // the beat switches the world in pulse levels
 }
@@ -255,6 +267,7 @@ function resume() {
 
 function toTitle() {
   state = 'title';
+  pack = PACKS.main;
   world = new World(LEVELS[0], 0);
   R.setLevel(world);
   setAccent(world.phase);
@@ -267,13 +280,14 @@ function toTitle() {
 
 function openSelect() {
   S.init();
+  selected = pack;
   buildSelect();
   state = 'select';
   show('select');
 }
 
 function nextUnplayed() {
-  const i = LEVELS.findIndex((_, k) => !save.best[k]);
+  const i = LEVELS.findIndex((_, k) => !save.best[k]); // the campaign only: "Continue" never jumps into the Hardcore Pack
   return i === -1 ? 0 : i;
 }
 function updatePlayLabel() {
@@ -284,44 +298,74 @@ function updatePlayLabel() {
 function finishLevel() {
   const i = world.index;
   const t = world.time;
-  const prev = save.best[i];
+  const hardcore = pack.id === 'hc';
+  const store = cur();
+  const prev = store.prog.best[i];
   const isBest = !prev || t < prev.time;
   const starsBefore = starsOf(i);
-  save.best[i] = {
-    time: isBest ? t : prev.time,
-    shards: Math.max(prev ? prev.shards : 0, world.collected),
-    deathless: (prev && prev.deathless) || world.deaths === 0,
-  };
-  save.unlocked = Math.max(save.unlocked, Math.min(i + 1, LEVELS.length - 1));
-  const pay = earnings({
-    levelIndex: i,
-    shards: world.collected,
-    firstClear: !prev,
-    newStars: Math.max(0, starsOf(i).count - starsBefore.count),
-    newBest: isBest && !!prev,
-    deathless: world.deaths === 0,
-    allShards: world.shards.length > 0 && world.collected === world.shards.length,
-  });
-  const walletBefore = save.shop.wallet;
-  save.shop = deposit(save.shop, pay.total);
-  writeSave();
-  const hash = levelHash(LEVELS[i]);
-  if (isBest || !ghosts[i] || ghosts[i].hash !== hash) { // a changed level layout invalidates the old ghost
-    ghosts[i] = { hash, rle: encodeRun(runMasks) };
-    writeJSON(GHOST_KEY, ghosts);
+  let pay = null, walletBefore = 0, clear = null;
+  if (hardcore) {
+    // own save, own stars; pays nothing into the shop and never touches the campaign save
+    clear = recordClear(hc.prog, pack, i, { time: t, shards: world.collected, deaths: world.deaths });
+    hc.prog = clear.prog;
+    writeJSON(pack.keys.save, hc.prog);
+  } else {
+    save.best[i] = {
+      time: isBest ? t : prev.time,
+      shards: Math.max(prev ? prev.shards : 0, world.collected),
+      deathless: (prev && prev.deathless) || world.deaths === 0,
+    };
+    save.unlocked = Math.max(save.unlocked, Math.min(i + 1, LEVELS.length - 1));
+    pay = earnings({
+      levelIndex: i,
+      shards: world.collected,
+      firstClear: !prev,
+      newStars: Math.max(0, starsOf(i).count - starsBefore.count),
+      newBest: isBest && !!prev,
+      deathless: world.deaths === 0,
+      allShards: world.shards.length > 0 && world.collected === world.shards.length,
+    });
+    walletBefore = save.shop.wallet;
+    save.shop = deposit(save.shop, pay.total);
+    writeSave();
+  }
+  const hash = levelHash(pack.levels[i]);
+  if (isBest || !store.ghosts[i] || store.ghosts[i].hash !== hash) { // a changed level layout invalidates the old ghost
+    store.ghosts[i] = { hash, rle: encodeRun(runMasks) };
+    writeJSON(pack.keys.ghosts, store.ghosts);
   }
 
-  $('#completeTitle').textContent = `${LEVELS[i].name} cleared`;
+  $('#completeTitle').textContent = `${pack.levels[i].name} cleared`;
   $('#stTime').textContent = fmt(t);
   $('#stShards').textContent = `${world.collected}/${world.shards.length}`;
   $('#stDeaths').textContent = String(world.deaths);
   $('#bestBadge').hidden = !(isBest && prev);
   renderStars($('#stStars'), i, starsBefore);
-  updateWallet();
-  $('#btnNext').textContent = i === LEVELS.length - 1 ? 'See your results' : 'Next level';
+  const last = i === pack.levels.length - 1;
+  $('#btnNext').textContent = last ? (hardcore ? 'Back to levels' : 'See your results') : 'Next level';
+  $('#earn').hidden = hardcore;
+  $('#hcReward').hidden = !hardcore;
   state = 'complete';
+  if (hardcore) {
+    earnRun++; // stops a count-up still running from a campaign clear
+    $('#unlockNote').hidden = true;
+    showHcReward(clear);
+    show('complete');
+    return;
+  }
+  updateWallet();
   show('complete');
   showEarnings(pay, walletBefore);
+}
+
+// Hardcore clears show the level's reward instead of shard earnings.
+function showHcReward(clear) {
+  const r = clear.reward;
+  $('#hcRewardKicker').textContent = !r ? 'Hardcore Pack' : clear.earned ? 'Reward unlocked' : 'Reward';
+  $('#hcRewardName').textContent = r ? r.name : 'No reward on this level';
+  $('#hcRewardNote').textContent = !r ? '' : clear.earned
+    ? `${SLOT_NAMES[r.slot]}: ${r.desc} Wear it from the Hardcore Pack level list.`
+    : `${SLOT_NAMES[r.slot]}: already yours.`;
 }
 
 // ---------- earnings on the level-complete screen ----------
@@ -428,7 +472,7 @@ function setGoalUI(prefix, item, wallet) {
 function renderStars(el, i, before) {
   const now = starsOf(i);
   const items = [
-    ['fast', `Under ${fmt(PAR[i])}`],
+    ['fast', `Under ${fmt(pack.par[i])}`],
     ['shards', 'All shards'],
     ['deathless', 'No deaths'],
   ];
@@ -445,7 +489,9 @@ function renderStars(el, i, before) {
 
 function next() {
   const i = world.index;
-  if (i === LEVELS.length - 1) {
+  if (pack.id === 'hc' && i === pack.levels.length - 1) {
+    openSelect(); // the pack has no finale; its list shows the stars
+  } else if (i === pack.levels.length - 1) {
     const total = LEVELS.reduce((s, _, k) => s + (save.best[k] ? save.best[k].time : 0), 0);
     const stars = LEVELS.reduce((s, _, k) => s + starsOf(k).count, 0);
     $('#fnTime').textContent = fmt(total);
@@ -500,6 +546,7 @@ function openSettings() {
   $('#resetConfirm').hidden = true;
   $('#resetDone').hidden = true;
   $('#btnReset').hidden = false;
+  $('#btnResetHc').hidden = false;
   $('#btnReplayTutorial').hidden = state === 'pause'; // the tutorial replaces the title backdrop, so only offer it from there
   state = 'settings';
   show('settings');
@@ -603,19 +650,95 @@ function cancelCapture() {
 }
 
 // ---------- level select ----------
+let selected = PACKS.main; // pack shown in the level list
+const lockedIn = (p, i) => i > cur(p).prog.unlocked;
+
+function buildPackTabs() {
+  const box = $('#packTabs');
+  // Update the tabs in place: replacing them would drop keyboard focus (pack click, storage event from another tab).
+  const tabs = PACK_LIST.map((p) => {
+    let b = box.querySelector(`#packTab-${p.id}`);
+    if (!b) {
+      b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tab pack-tab';
+      b.id = `packTab-${p.id}`;
+      b.dataset.pack = p.id;
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-controls', 'levelGrid');
+      b.append(p.name, Object.assign(document.createElement('span'), { className: 'tab-count' }));
+      b.addEventListener('click', () => selectPack(p.id));
+    }
+    b.setAttribute('aria-selected', String(p === selected));
+    b.tabIndex = p === selected ? 0 : -1;
+    const stars = packStars(p, cur(p).prog);
+    b.querySelector('.tab-count').textContent = `${stars}/${p.levels.length * 3}`;
+    b.setAttribute('aria-label', `${p.name}, ${stars} of ${p.levels.length * 3} stars`);
+    return b;
+  });
+  if (tabs.some((b, i) => box.children[i] !== b)) box.replaceChildren(...tabs);
+  $('#levelGrid').setAttribute('aria-labelledby', `packTab-${selected.id}`);
+}
+
+function selectPack(id, focus = false) {
+  if (selected.id === id) return;
+  selected = PACKS[id];
+  S.play('ui');
+  buildSelect();
+  if (focus) $(`#packTab-${id}`).focus();
+}
+
+// Hardcore rewards: earned ones can be worn or taken off, the rest show where they come from.
+function buildRewards() {
+  const box = $('#hcRewards');
+  const list = selected.id === 'hc' ? rewardsOf(selected) : [];
+  box.hidden = !list.length;
+  box.replaceChildren(...list.map((r) => {
+    const earned = hc.prog.rewards.includes(r.id);
+    const worn = hc.prog.equip[r.slot] === r.id;
+    const b = document.createElement(earned ? 'button' : 'span');
+    b.dataset.id = r.id;
+    b.className = `reward-chip${earned ? '' : ' is-locked'}${worn ? ' is-worn' : ''}`;
+    b.innerHTML = `<i class="ph-bold ${earned ? (worn ? 'ph-check' : 'ph-sparkle') : 'ph-lock-simple'}" aria-hidden="true"></i>`;
+    const text = document.createElement('span');
+    text.textContent = earned ? `${r.name} (${SLOT_NAMES[r.slot].toLowerCase()})` : `Reward: clear ${selected.levels[r.level].name}`;
+    b.append(text);
+    if (earned) {
+      b.type = 'button';
+      b.setAttribute('aria-pressed', String(worn));
+      b.setAttribute('aria-label', `${r.name}, ${SLOT_NAMES[r.slot].toLowerCase()} reward. ${worn ? 'Worn' : 'Not worn'}`);
+      b.addEventListener('click', () => {
+        hc.prog = toggleEquip(hc.prog, selected, r.id);
+        writeJSON(selected.keys.save, hc.prog);
+        applyLook();
+        S.play('ui');
+        buildRewards();
+        box.querySelector(`[data-id="${r.id}"]`)?.focus();
+      });
+    }
+    return b;
+  }));
+}
+
 function buildSelect() {
+  const p = selected;
+  const { prog, deaths: log } = cur(p);
+  const counts = SHARDS[p.id];
+  $('#screenSelect').dataset.pack = p.id;
+  buildPackTabs();
+  buildRewards();
   const grid = $('#levelGrid');
   grid.replaceChildren();
-  LEVELS.forEach((lv, i) => {
-    const act = ACTS.find((a) => a.from === i);
+  p.levels.forEach((lv, i) => {
+    const act = p.acts.find((a) => a.from === i);
     if (act) {
       const head = document.createElement('h3');
       head.className = 'act-head';
       head.textContent = act.name;
       grid.append(head);
     }
-    const locked = i > save.unlocked;
-    const best = save.best[i];
+    const locked = lockedIn(p, i);
+    const best = prog.best[i];
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'level-card';
@@ -624,7 +747,7 @@ function buildSelect() {
     const cv = document.createElement('canvas');
     cv.className = 'minimap';
     cv.setAttribute('aria-hidden', 'true');
-    drawMinimap(cv, lv, deaths[i] || []);
+    drawMinimap(cv, lv, log[i] || []);
     const meta = document.createElement('div');
     const num = document.createElement('span');
     num.className = 'lc-num';
@@ -635,10 +758,10 @@ function buildSelect() {
     const info = document.createElement('span');
     info.className = 'lc-best';
     if (locked) info.innerHTML = '<i class="ph-bold ph-lock-simple" aria-hidden="true"></i>Locked';
-    else if (best) info.textContent = `Best ${fmt(best.time)}, ${best.shards}/${shardCount[i]} shards`;
-    else info.textContent = `${shardCount[i]} shards to find`;
+    else if (best) info.textContent = `Best ${fmt(best.time)}, ${best.shards}/${counts[i]} shards`;
+    else info.textContent = `${counts[i]} shards to find`;
     meta.append(num, name, info);
-    const st = starsOf(i);
+    const st = starsOf(i, p);
     if (!locked) {
       const row = document.createElement('span');
       row.className = 'lc-stars';
@@ -651,9 +774,11 @@ function buildSelect() {
       meta.append(row);
     }
     b.append(cv, meta);
-    const deathCount = (deaths[i] || []).length;
-    b.setAttribute('aria-label', `Level ${i + 1}: ${lv.name}${locked ? ', locked' : `, ${st.count} of 3 stars${deathCount ? `, ${deathCount} deaths recorded` : ''}`}`);
-    b.addEventListener('click', () => { S.play('ui'); startLevel(i); });
+    const deathCount = (log[i] || []).length;
+    const rw = rewardForLevel(p, i);
+    const rewardNote = rw ? `, reward ${prog.rewards.includes(rw.id) ? 'earned' : 'to win'}: ${rw.name}` : '';
+    b.setAttribute('aria-label', `Level ${i + 1}: ${lv.name}${locked ? ', locked' : `, ${st.count} of 3 stars${deathCount ? `, ${deathCount} deaths recorded` : ''}${rewardNote}`}`);
+    b.addEventListener('click', () => { S.play('ui'); startLevel(i, p.id); });
     grid.append(b);
   });
 }
@@ -734,7 +859,7 @@ function obPrev() {
 function finishOnboarding(play) {
   markOnboarded();
   S.init();
-  if (play) startLevel(0);
+  if (play) startLevel(0, 'main');
   else toTitle();
 }
 
@@ -964,7 +1089,10 @@ function previewItem(id) {
   if (!shopUI.player) return;
   shopUI.preview = item ? item.id : null;
   const eq = save.shop.equip;
-  const look = lookFor(item ? { ...eq, [item.slot]: item.id } : eq);
+  // The worn Hardcore rewards show as in the game; a tried-on item replaces its own slot's reward only.
+  const worn = rewardStyles(hc.prog);
+  if (item) delete worn[item.slot];
+  const look = lookFor(item ? { ...eq, [item.slot]: item.id } : eq, worn);
   const r = shopUI.player.renderer;
   r.setLook(look);
   r.setTheme(look.theme);
@@ -1087,7 +1215,7 @@ function handleEvent(e) {
   S.play(e.type, e);
   if (e.type === 'swap') { setAccent(e.phase); S.setPhase(e.phase); }
   if (e.type === 'respawn') { setAccent(world.phase); S.setPhase(world.phase); }
-  if (e.type === 'die') { addDeath(deaths, world.index, e.x, e.y); writeJSON(DEATH_KEY, deaths); }
+  if (e.type === 'die') { const log = cur().deaths; addDeath(log, world.index, e.x, e.y); writeJSON(pack.keys.deaths, log); }
   if (e.type === 'win') winTimer = 1.1;
 }
 
@@ -1260,7 +1388,14 @@ function step(now) {
 }
 
 // ---------- wiring ----------
-$('#btnPlay').addEventListener('click', () => { S.play('ui'); startLevel(nextUnplayed()); });
+$('#btnPlay').addEventListener('click', () => { S.play('ui'); startLevel(nextUnplayed(), 'main'); });
+$('#packTabs').addEventListener('keydown', (e) => {
+  const k = PACK_LIST.indexOf(selected);
+  const to = { ArrowRight: k + 1, ArrowLeft: k - 1, Home: 0, End: PACK_LIST.length - 1 }[e.key];
+  if (to === undefined) return;
+  e.preventDefault();
+  selectPack(PACK_LIST[(to + PACK_LIST.length) % PACK_LIST.length].id, true);
+});
 $('#btnLevels').addEventListener('click', () => { S.play('ui'); openSelect(); });
 $('#btnShop').addEventListener('click', () => { S.play('ui'); openShop(); });
 $('#btnShopBack').addEventListener('click', toTitle);
@@ -1330,31 +1465,50 @@ for (const [k, input] of SWITCHES) {
   });
 }
 $('#resetText').textContent = `Delete all best times, stars, ghosts and the death map, and lock levels 2 to ${LEVELS.length} again? Your shards and every item you bought are removed too. This cannot be undone.`;
-$('#btnReset').addEventListener('click', () => {
-  $('#btnReset').hidden = true;
-  $('#resetDone').hidden = true;
-  $('#resetConfirm').hidden = false;
-  $('#btnResetNo').focus();
-});
+// two resets, each with its own confirmation: the campaign (and the shop) or the Hardcore Pack (which never touches the campaign)
+const RESET_TEXT = {
+  main: $('#resetText').textContent,
+  hc: 'Delete all Hardcore Pack best times, stars, ghosts, the death map and the rewards you earned there? The campaign, your shards and your shop items stay. This cannot be undone.',
+};
+let resetTarget = 'main';
+const resetButton = () => $(resetTarget === 'hc' ? '#btnResetHc' : '#btnReset');
+for (const [id, target] of [['#btnReset', 'main'], ['#btnResetHc', 'hc']]) {
+  $(id).addEventListener('click', () => {
+    resetTarget = target;
+    $('#resetText').textContent = RESET_TEXT[target];
+    $('#btnReset').hidden = true;
+    $('#btnResetHc').hidden = true;
+    $('#resetDone').hidden = true;
+    $('#resetConfirm').hidden = false;
+    $('#btnResetNo').focus();
+  });
+}
 $('#btnResetNo').addEventListener('click', () => {
   $('#resetConfirm').hidden = true;
   $('#btnReset').hidden = false;
-  $('#btnReset').focus();
+  $('#btnResetHc').hidden = false;
+  resetButton().focus();
 });
 $('#btnResetYes').addEventListener('click', () => {
-  save = { unlocked: 0, best: {}, shop: newShop() };
-  ghosts = {};
-  deaths = {};
-  writeSave();
-  writeJSON(GHOST_KEY, ghosts);
-  writeJSON(DEATH_KEY, deaths);
+  if (resetTarget === 'hc') {
+    Object.assign(hc, { prog: newHc(), ghosts: {}, deaths: {} });
+    for (const [k, v] of [['save', hc.prog], ['ghosts', hc.ghosts], ['deaths', hc.deaths]]) writeJSON(PACKS.hc.keys[k], v);
+  } else {
+    save = { unlocked: 0, best: {}, shop: newShop() };
+    ghosts = {};
+    deaths = {};
+    writeSave();
+    writeJSON(GHOST_KEY, ghosts);
+    writeJSON(DEATH_KEY, deaths);
+    updateWallet();
+    updatePlayLabel();
+  }
   applyLook();
-  updateWallet();
-  updatePlayLabel();
   $('#resetConfirm').hidden = true;
   $('#btnReset').hidden = false;
+  $('#btnResetHc').hidden = false;
   $('#resetDone').hidden = false;
-  $('#btnReset').focus();
+  resetButton().focus();
 });
 I.onPadPause = () => (state === 'play' ? pause() : state === 'pause' || state === 'settings' ? back() : null);
 I.onMenu = onMenu;
@@ -1457,6 +1611,8 @@ window.__dusklight = {
   get world() { return world; },
   get ghost() { return ghost; },
   get save() { return save; },
+  get hc() { return hc; },
+  get pack() { return pack; },
   startLevel,
   settings,
 };
