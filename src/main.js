@@ -248,6 +248,12 @@ function startLevel(i, packId = pack.id) {
   hudCache = {};
   $('#hudLevel').textContent = `${pack.id === 'hc' ? 'HC ' : ''}${i + 1}  ${lv.name}`;
   $('#phasePill').classList.toggle('is-pulse', !!world.pulse);
+  const tw = world.twistImpl; // rule twist of a Hardcore level: name in the HUD, the rule in the label
+  const chip = $('#hudTwist');
+  chip.hidden = !tw;
+  chip.textContent = tw ? tw.name : '';
+  chip.setAttribute('aria-label', tw ? `Rule twist: ${tw.name}. ${tw.hint}` : '');
+  chip.title = tw ? tw.hint : '';
   document.querySelector('.t-swap').hidden = !!world.pulse; // the beat switches the world in pulse levels
 }
 

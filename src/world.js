@@ -21,11 +21,22 @@ export const PHYS = {
 // registered once with registerTwist(id, impl); impl may define any of
 //   init(world)        after the grid is parsed, to set up twist state on `world.tw`
 //   tick(world, dt)    every simulation step (also while the player is dead), after the world ticked, before the player moves
+//   input(world, inp)  returns the input the player is read from this step. The caller keeps the raw input (ghost, solver),
+//                      so a rewritten input replays the same way. Return `inp` itself when nothing changes.
 //   key(world)         extra string for stateKey(): everything in `world.tw` that changes what happens next
 //   clone(src, copy)   deep-copy `world.tw` into `copy.tw` (clone() shares nothing mutable)
 // Levels without a twist never touch this, so existing levels behave exactly as before.
 export const TWISTS = {};
 export function registerTwist(id, impl) { TWISTS[id] = impl; }
+
+// ---------- twist: mirror (Hardcore 1) ----------
+// Left and right are swapped; jump, dash and the world switch stay as they are. Pure input rewrite: no live state, so nothing
+// for clone() or stateKey(). `name` and `hint` are shown in the HUD.
+registerTwist('mirror', {
+  name: 'Mirror',
+  hint: 'Left and right are swapped',
+  input: (w, inp) => (inp.left === inp.right ? inp : { ...inp, left: inp.right, right: inp.left }),
+});
 
 const approach = (v, t, d) => (v < t ? Math.min(v + d, t) : Math.max(v - d, t));
 const overlap = (ax, ay, aw, ah, bx, by, bw, bh) => ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
@@ -180,6 +191,7 @@ export class World {
     }
     this.time += dt;
 
+    if (this.twistImpl && this.twistImpl.input) inp = this.twistImpl.input(this, inp);
     if (inp.swapPressed) this.trySwap();
 
     const dir = (inp.right ? 1 : 0) - (inp.left ? 1 : 0);
