@@ -1,6 +1,8 @@
 // Crumbling stone, dash orbs and pulse worlds, each checked in a tiny level with the real World.
 import { build, TILE as T } from '../src/levels.js';
 import { World, STEP, PHYS } from '../src/world.js';
+import { inputToMask, maskToInput, encodeRun, decodeRun, levelHash } from '../src/progress.js';
+import { HARDCORE } from '../src/levels-hardcore.js';
 
 let failed = 0;
 const check = (name, ok, extra = '') => { if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? `  ${extra}` : ''}`); };
@@ -88,6 +90,79 @@ const run = (w, seconds, inp = idle) => { for (let t = 0; t < seconds - 1e-9; t 
   run(b, 1.0, { ...idle, right: true });
   check('clone: independent copies', untouched);
   check('clone: same inputs, same result', a.player.x === b.player.x && a.player.y === b.player.y && a.phase === b.phase && a.stateKey() === b.stateKey());
+}
+
+// ---------- twist: mirror (Hardcore 1) ----------
+{
+  const mk = (twist) => build({ name: 't', w: 40, h: 10, seed: 1, ...(twist ? { twist: { id: 'mirror' } } : {}) }, ({ ground, put }) => { ground(0, 39, 8); put(20, 7, 'P'); });
+  const mirror = mk(true), plain = mk(false);
+  const L = { ...idle, left: true }, R = { ...idle, right: true };
+  const dx = (lv, inp, s = 0.4) => { const w = new World(lv, 0); const x0 = w.player.x; run(w, s, inp); return w.player.x - x0; };
+  check('mirror: right moves left, left moves right', dx(mirror, R) < -50 && dx(mirror, L) > 50);
+  check('mirror: without the twist nothing changes', dx(plain, R) > 50 && dx(plain, L) < -50);
+  check('mirror: both keys cancel out, as without the twist', Math.abs(dx(mirror, { ...idle, left: true, right: true })) < 1e-9 && Math.abs(dx(plain, { ...idle, left: true, right: true })) < 1e-9);
+  check('mirror: same speed in both directions', Math.abs(dx(mirror, R) + dx(plain, R) - 0) < 1e-9 && Math.abs(dx(mirror, R) + dx(mirror, L)) < 1e-9);
+  const face = new World(mirror, 0);
+  run(face, 0.1, R);
+  check('mirror: the player faces the way they actually move', face.player.facing === -1);
+  // jump, dash and world switch are not mirrored
+  const jw = new World(mirror, 0), jp = new World(plain, 0);
+  for (const w of [jw, jp]) { w.update(STEP, { ...idle, jumpHeld: true, jumpPressed: true }); }
+  check('mirror: jump is unchanged', jw.player.vy < 0 && jw.player.vy === jp.player.vy);
+  const dw = new World(mirror, 0);
+  dw.update(STEP, { ...idle, right: true, dashPressed: true });
+  check('mirror: a dash goes the way the player moves (right key = left)', dw.player.dashDir === -1 && dw.player.vx < 0);
+  const dn = new World(mirror, 0);
+  run(dn, 0.1, R); // faces left
+  dn.update(STEP, { ...idle, dashPressed: true });
+  check('mirror: a dash without direction follows the facing', dn.player.dashDir === -1);
+  const sw = new World(mirror, 0);
+  sw.update(STEP, { ...idle, swapPressed: true });
+  check('mirror: the world switch is unchanged', sw.phase === 1);
+  // the input object the caller passes in (the ghost's, the solver's) is never touched
+  const raw = Object.freeze({ ...idle, right: true, jumpHeld: true });
+  let threw = false;
+  try { new World(mirror, 0).update(STEP, raw); } catch { threw = true; }
+  check('mirror: raw input is left alone', !threw && raw.right === true && raw.left === false);
+  // ghost: raw masks replay to the same run, through encode/decode as stored in localStorage
+  const script = (t) => ({ left: t % 300 > 200, right: t % 300 <= 200 && t % 300 > 40, jumpHeld: t % 90 < 30, jumpPressed: t % 90 === 0, dashPressed: t % 170 === 60, swapPressed: t % 130 === 90 });
+  const live = new World(mirror, 0), masks = [];
+  for (let t = 0; t < 1200; t++) { const inp = script(t); masks.push(inputToMask(inp)); live.update(STEP, inp); }
+  const replay = new World(mirror, 0);
+  for (const m of decodeRun(encodeRun(masks))) replay.update(STEP, maskToInput(m));
+  check('mirror: a ghost of raw inputs replays to the same state', replay.player.x === live.player.x && replay.player.y === live.player.y && replay.stateKey() === live.stateKey() && live.player.x !== new World(mirror, 0).player.x);
+  const flat = new World(plain, 0);
+  for (let t = 0; t < 1200; t++) flat.update(STEP, script(t));
+  check('mirror: the twist really changes the run (ghosts of other levels do not apply)', flat.player.x !== live.player.x && levelHash(mirror) !== levelHash(plain));
+  // clone / stateKey: no twist state, so an unchanged key and independent copies
+  const c = live.clone();
+  run(c, 0.5, R);
+  check('mirror: clone is independent and keeps the rule', c.twistImpl === live.twistImpl && c.player.x !== live.player.x && new World(mirror, 0).stateKey() === new World(plain, 0).stateKey());
+  const a = new World(mirror, 0), b = a.clone();
+  run(a, 0.7, L); run(b, 0.7, L);
+  check('mirror: clone with the same inputs, same result', a.player.x === b.player.x && a.stateKey() === b.stateKey());
+}
+
+// ---------- the Mirror level (Hardcore 1) ----------
+{
+  const lv = HARDCORE[0];
+  check('mirror level: carries the mirror twist and a unique reward', lv.twist && lv.twist.id === 'mirror' && lv.reward && lv.reward.id === 'hc.body.mirror');
+  const w = new World(lv, 0);
+  const sx = Math.floor(w.player.x / T);
+  check('mirror level: the twist is explained on a sign in the first section', lv.signs.some((s) => s.x / T < 25 && /\{left\}/.test(s.text) && /\{right\}/.test(s.text)));
+  // practice area: from the start to the first thorn or pit there is solid ground and nothing deadly
+  const rows = lv.rows, firstDanger = (() => {
+    for (let x = 0; x < lv.w; x++) {
+      if (rows[lv.h - 1][x] !== '#' || [...rows.map((r) => r[x])].some((c) => '^vab'.includes(c))) return x;
+    }
+    return lv.w;
+  })();
+  check('mirror level: a harmless practice area of at least 20 tiles around the start', sx >= 3 && firstDanger >= 20, `start ${sx}, first danger at ${firstDanger}`);
+  // idle at the start for ten seconds and walk the whole practice area both ways: nobody dies
+  const pw = new World(lv, 0);
+  run(pw, 10);
+  for (let t = 0; t < 4; t++) { run(pw, 1.2, { ...idle, right: t % 2 === 0, left: t % 2 === 1 }); }
+  check('mirror level: standing and walking in the practice area is safe', pw.player.alive && pw.deaths === 0);
 }
 
 process.exit(failed ? 1 : 0);

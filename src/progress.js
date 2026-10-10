@@ -8,7 +8,7 @@ export const PAR = [20, 24, 29, 26, 25, 23, 31, 31, 31, 30, 36, 33, 38, 32, 38, 
 
 // Par times of the Hardcore Pack (src/levels-hardcore.js), same rule: route * 1.8 + 5 from `JSON=1 PACK=hc node tests/solve.mjs`.
 // One entry per level in HARDCORE, in order (tests/packs.mjs checks the length).
-export const PAR_HC = [16];
+export const PAR_HC = [30];
 
 // entry = { time, shards, deathless } best values for a level (any may come from different runs); par defaults to the campaign's
 export function starsFor(entry, levelIndex, shardTotal, par = PAR) {
