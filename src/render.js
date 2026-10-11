@@ -903,8 +903,8 @@ export class Renderer {
     if (this.scarf) drawScarf(this, ctx, look.scarf, this.scarf, t);
 
     ctx.save();
-    ctx.translate(cx, by);
-    ctx.scale(this.sq.x, this.sq.y);
+    ctx.translate(cx, world.gs < 0 ? p.y : by);
+    ctx.scale(this.sq.x, this.sq.y * (world.gs < 0 ? -1 : 1));
     const visor = look.body.visor;
     drawHat(this, ctx, look.hat, 'back', p.facing, t, H, visor);
     ctx.fillStyle = bodyFill(this, ctx, look.body, t, W, H);

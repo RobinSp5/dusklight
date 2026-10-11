@@ -32,14 +32,20 @@ export const THEMES = {
     frost: { skyTop: '#06040f', skyBot: '#261b4a', far: '#1d1539', mid: '#140e29', near: '#0a0716', stone: '#100c1c', accent: '#b18cff', accent2: '#ece3ff', disc: '#d9ccff' },
     css: { glut: '#ffc94d', frost: '#b18cff' },
   },
+  pulse: {
+    name: 'Pulse',
+    ember: { skyTop: '#2a0f2f', skyBot: '#8b2a6e', far: '#6e1f57', mid: '#551849', near: '#2d0f32', stone: '#3a1840', accent: '#ff6b9d', accent2: '#ff9dba', disc: '#ff8ab0' },
+    frost: { skyTop: '#0f2a35', skyBot: '#1a6b7d', far: '#147a8f', mid: '#0f5a6d', near: '#084050', stone: '#0f4555', accent: '#4dffff', accent2: '#8dffff', disc: '#afffff' },
+    css: { glut: '#ff6b9d', frost: '#4dffff' },
+  },
 };
 
 // ---------- look ----------
 const KINDS = {
   body: ['solid', 'shifter', 'aurora', 'prism', 'supernova'],
   scarf: ['world', 'solid', 'aurora', 'starlight', 'comet', 'rainbow', 'phoenix'],
-  hat: ['none', 'antenna', 'horns', 'halo', 'lantern', 'crown', 'wings', 'orbit'],
-  trail: ['none', 'embers', 'snow', 'stardust', 'echo', 'prism'],
+  hat: ['none', 'antenna', 'horns', 'halo', 'lantern', 'crown', 'wings', 'orbit', 'amulet', 'flipcrown'],
+  trail: ['none', 'embers', 'snow', 'stardust', 'echo', 'prism', 'streak'],
   death: ['classic', 'confetti', 'shatter', 'blackhole', 'fireworks'],
 };
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -359,6 +365,32 @@ export function drawHat(r, ctx, hat, layer, facing, t, H, visor) {
       ctx.fill();
       ctx.restore();
     }
+  } else if (hat === 'amulet') {
+    const spin = r.reduced ? 0 : time * 1.6;
+    const cx = facing * 1, cy = -H - 8;
+    ctx.globalCompositeOperation = 'lighter';
+    r.drawGlow('accent', cx, cy, 14, 0.45, t);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = r.css(r.pal('accent', t));
+    ctx.beginPath(); ctx.arc(cx, cy, 5, Math.PI / 2 + spin, Math.PI * 1.5 + spin); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = r.css(r.pal('accent2', t));
+    ctx.beginPath(); ctx.arc(cx, cy, 5, Math.PI * 1.5 + spin, Math.PI * 2.5 + spin); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#ffd36b'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(cx, cy, 5.6, 0, TAU); ctx.stroke();
+  } else if (hat === 'flipcrown') {
+    ctx.save();
+    ctx.translate(0, -H - 5);
+    ctx.scale(1, -1);
+    ctx.translate(0, H + 3);
+    ctx.fillStyle = '#ffd36b';
+    ctx.beginPath();
+    ctx.moveTo(-7, -H + 2); ctx.lineTo(-7, -H - 6); ctx.lineTo(-3.5, -H - 2); ctx.lineTo(0, -H - 8);
+    ctx.lineTo(3.5, -H - 2); ctx.lineTo(7, -H - 6); ctx.lineTo(7, -H + 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = r.css(r.pal('accent2', t));
+    ctx.beginPath(); ctx.arc(0, -H - 1.5, 1.6, 0, TAU); ctx.fill();
+    ctx.restore();
   } else if (hat === 'crown') {
     ctx.fillStyle = '#ffd36b';
     ctx.beginPath();
@@ -445,11 +477,23 @@ export function trailParticles(r, kind, p, fx, fy, dt, t) {
     case 'echo':
       r.trickle('trail', dt, 16 * Math.min(1, speed / 300) * (r.reduced ? 0.5 : 1), () => r.after.push({ x: p.x, y: p.y, life: 0.3, max: 0.3, echo: true }));
       break;
+    case 'streak':
+      r.trickle('trail', dt, 60 * rate, () => r.particles.push(particle({
+        x: fx - Math.sign(p.vx || p.facing) * 4, y: fy - 4 - Math.random() * 18, vx: -p.vx * 0.15, vy: jitter() * 8, life: 0.25 + Math.random() * 0.2,
+        size: 1.6 + Math.random() * 1.4, color: Math.random() < 0.5 ? '#bff4ff' : '#ffffff', drag: 3, glow: true,
+      })));
+      break;
     case 'prism':
       r.trickle('trail', dt, 8 * rate, () => r.particles.push(particle({
         x: fx + jitter() * 8, y: fy - 3, vx: jitter() * 30, vy: -10 - Math.random() * 20, life: 0.5,
         size: 3.5 + Math.random() * 2, color: rgba(hueRGB(clock(r) * 360 + Math.random() * 60, 0.86, 0.12)), drag: 2, glow: true,
         shape: 'star', rot: Math.random() * TAU, vr: 2,
+      })));
+      break;
+    case 'pulse':
+      r.trickle('trail', dt, 20 * rate, () => r.particles.push(particle({
+        x: fx, y: fy - 2, vx: jitter() * 10, vy: jitter() * 10, life: 0.4,
+        size: 2 + Math.random() * 1.5, color: rgba(hueRGB((clock(r) + Math.random() * 30) * 360, 0.75, 0.45)), drag: 1.5, glow: true,
       })));
       break;
     default:

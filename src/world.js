@@ -25,6 +25,7 @@ export const PHYS = {
 //                      so a rewritten input replays the same way. Return `inp` itself when nothing changes.
 //   key(world)         extra string for stateKey(): everything in `world.tw` that changes what happens next
 //   clone(src, copy)   deep-copy `world.tw` into `copy.tw` (clone() shares nothing mutable)
+//   swap(world)        after a player world switch succeeded (not denied, not a pulse flip)
 // Levels without a twist never touch this, so existing levels behave exactly as before.
 export const TWISTS = {};
 export function registerTwist(id, impl) { TWISTS[id] = impl; }
@@ -36,6 +37,85 @@ registerTwist('mirror', {
   name: 'Mirror',
   hint: 'Left and right are swapped',
   input: (w, inp) => (inp.left === inp.right ? inp : { ...inp, left: inp.right, right: inp.left }),
+});
+
+// ---------- twist: phase flip (Hardcore 2) ----------
+// Starts with left and right swapped. Every successful world switch flips the swap on or off, so Ember (the start world) is
+// inverted and Frost is normal. State: world.tw = { inv: 0 | 1 }.
+registerTwist('invertedWithPhaseToggle', {
+  name: 'Phase Flip',
+  hint: 'Left and right are swapped. Every world switch flips them back and forth',
+  init: (w) => { w.tw = { inv: 1 }; },
+  input: (w, inp) => (w.tw.inv && inp.left !== inp.right ? { ...inp, left: inp.right, right: inp.left } : inp),
+  swap: (w) => { w.tw.inv ^= 1; },
+  key: (w) => w.tw.inv,
+  clone: (src, copy) => { copy.tw = { ...src.tw }; },
+});
+
+// ---------- twist: inverted gravity (Hardcore 4) ----------
+// Gravity pulls up: the player stands on the undersides of platforms, a jump pushes down. `gravity: -1` makes World set `gs = -1`
+// (a constant of the level, so nothing for clone() or stateKey()); movement, dash and world switch are unchanged.
+registerTwist('invertedGravity', {
+  name: 'Inverted Gravity',
+  hint: 'Gravity pulls up, jumping pushes down',
+  gravity: -1,
+});
+
+// ---------- twist: dash only (Hardcore 3) ----------
+// No walking, no jumping: left/right only aim a dash (they count on the frame a dash starts), jump is off. Dash orbs, springs,
+// falling and the world switch work as usual. Pure input rewrite: no live state, so nothing for clone() or stateKey().
+registerTwist('dashOnlyMovement', {
+  name: 'Dash Only',
+  hint: 'No walking and no jumping. Only dashes move you',
+  input: (w, inp) => {
+    const p = w.player;
+    const aim = inp.dashPressed && p.dashT <= 0 && (p.canDash || p.onGround);
+    return { ...inp, left: aim && inp.left, right: aim && inp.right, jumpHeld: false, jumpPressed: false };
+  },
+});
+
+// ---------- twist: rhythm world switch (Hardcore 5) ----------
+// Worlds switch automatically every 0.5 seconds; manual switches also work. The player must time jumps and platforms with
+// the beat. State: world.tw = { t: elapsed seconds in current beat }.
+registerTwist('rhythmicWorldSwitch', {
+  name: 'Rhythm',
+  hint: 'Worlds switch automatically every 0.5 seconds. Use the beat to your advantage',
+  init: (w) => { w.tw = { t: 0, interval: 0.5 }; },
+  tick: (w, dt) => {
+    w.tw.t += dt;
+    if (w.tw.t >= w.tw.interval) {
+      w.tw.t = 0;
+      w.trySwap();
+    }
+  },
+  key: (w) => String(Math.floor(w.tw.t * 10)),
+  clone: (src, copy) => { copy.tw = { ...src.tw }; },
+});
+
+// ---------- twist: beat (Hardcore 5) ----------
+// The world flips Ember/Frost on its own every `twist.every` seconds. Manual Shift switch still works and restarts the beat timer.
+// If the incoming world is solid where the player stands, the player dies. State: world.tw = { t: elapsed seconds in beat }.
+registerTwist('beat', {
+  name: 'Beat',
+  hint: 'The world flips every second. Your own switch restarts the beat',
+  init: (w) => { w.tw = { t: 0 }; },
+  clone: (src, copy) => { copy.tw = { ...src.tw }; },
+  key: (w) => Math.floor(w.tw.t / 0.05),
+  swapped: (w) => { w.tw.t = 0; },
+  warn: (w) => w.tw.t >= w.twist.every - 0.3,
+  progress: (w) => Math.min(1, w.tw.t / w.twist.every),
+  tick(w, dt) {
+    const warned = w.tw.t >= w.twist.every - 0.3;
+    w.tw.t += dt;
+    if (!warned && w.tw.t >= w.twist.every - 0.3) w.emit('pulseWarn', { phase: 1 - w.phase });
+    if (w.tw.t < w.twist.every - 1e-9) return;
+    w.tw.t = 0;
+    const p = w.player;
+    w.phase = 1 - w.phase;
+    w.emit('swap', { x: p.x + PHYS.W / 2, y: p.y + PHYS.H / 2, phase: w.phase, pulse: true });
+    if (p.alive && w.overlapsPhase(w.phase)) w.kill();
+  },
+  respawn: (w) => { w.tw.t = 0; },
 });
 
 const approach = (v, t, d) => (v < t ? Math.min(v + d, t) : Math.max(v - d, t));
@@ -70,7 +150,9 @@ export class World {
         this.grid[y][x] = '.';
       }
     }
-    this.spawn = { x: start.x * T + (T - PHYS.W) / 2, y: (start.y + 1) * T - PHYS.H, phase: level.startPhase };
+    const tw = level.twist && TWISTS[level.twist.id];
+    this.gs = tw && tw.gravity === -1 ? -1 : 1; // vertical gravity direction (+1 down, -1 up)
+    this.spawn = { x: start.x * T + (T - PHYS.W) / 2, y: this.gs < 0 ? start.y * T : (start.y + 1) * T - PHYS.H, phase: level.startPhase };
     this.phase = this.spawn.phase;
     this.pulse = level.pulse || 0; // seconds per world in pulse levels (0 = player switches manually)
     this.clock = 0; // keeps running while the player is dead, drives pulse levels
@@ -220,13 +302,14 @@ export class World {
         : (p.onGround ? PHYS.DEC_G : PHYS.DEC_A);
       p.vx = approach(p.vx, target, accel * dt);
       let g = PHYS.G;
-      if (p.vy < 0 && !inp.jumpHeld) g *= PHYS.CUT;
+      const gs = this.gs;
+      if (p.vy * gs < 0 && !inp.jumpHeld) g *= PHYS.CUT;
       else if (Math.abs(p.vy) < 90 && inp.jumpHeld) g *= PHYS.APEX;
-      p.vy = Math.min(p.vy + g * dt, PHYS.FALL);
+      p.vy = gs * Math.min(p.vy * gs + g * dt, PHYS.FALL);
     }
 
     if (p.buffer > 0 && p.coyote > 0) {
-      p.vy = -PHYS.JUMP;
+      p.vy = -this.gs * PHYS.JUMP;
       p.buffer = 0;
       p.coyote = 0;
       p.onGround = false;
@@ -242,7 +325,7 @@ export class World {
     if (p.onGround && this.crumbles.size) this.stepOnCrumbles(p);
 
     this.interact(p);
-    if (p.y > this.h * T + 96) this.kill();
+    if (p.y > this.h * T + 96 || (this.gs < 0 && p.y < -96)) this.kill();
   }
 
   moveX(p, dx) {
@@ -261,10 +344,35 @@ export class World {
 
   moveY(p, dy) {
     p.onGround = false;
+    const gs = this.gs;
     const prevBottom = p.y + PHYS.H;
     p.y += dy;
     const l = Math.floor(p.x / T);
     const r = Math.floor((p.x + PHYS.W - 0.01) / T);
+    if (gs < 0) {
+      // gravity up: the player lands with the top edge under a platform; one-way tiles hold only from below (as seen on screen)
+      if (dy < 0) {
+        const ty = Math.floor(p.y / T);
+        for (let tx = l; tx <= r; tx++) {
+          const oneWay = this.charAt(tx, ty) === '=' && prevBottom - PHYS.H >= (ty + 1) * T - 0.5;
+          if (this.solid(tx, ty) || oneWay) { p.y = (ty + 1) * T; p.vy = 0; p.onGround = true; break; }
+        }
+      } else if (dy > 0) {
+        const ty = Math.floor((p.y + PHYS.H - 0.01) / T);
+        for (let tx = l; tx <= r; tx++) {
+          if (this.solid(tx, ty)) { p.y = ty * T - PHYS.H; p.vy = 0; break; }
+        }
+      }
+      if (!p.onGround && p.vy <= 0) {
+        const ty = Math.floor((p.y - 0.5) / T);
+        if (Math.abs(p.y - (ty + 1) * T) < 0.6) {
+          for (let tx = l; tx <= r; tx++) {
+            if (this.solid(tx, ty) || this.charAt(tx, ty) === '=') { p.onGround = true; break; }
+          }
+        }
+      }
+      return;
+    }
     if (dy > 0) {
       const ty = Math.floor((p.y + PHYS.H - 0.01) / T);
       for (let tx = l; tx <= r; tx++) {
@@ -290,7 +398,7 @@ export class World {
   }
 
   stepOnCrumbles(p) {
-    const ty = Math.floor((p.y + PHYS.H + 0.5) / T);
+    const ty = this.gs < 0 ? Math.floor((p.y - 0.5) / T) : Math.floor((p.y + PHYS.H + 0.5) / T);
     const l = Math.floor(p.x / T), r = Math.floor((p.x + PHYS.W - 0.01) / T);
     for (let tx = l; tx <= r; tx++) {
       if (this.charAt(tx, ty) !== 'x') continue;
@@ -321,6 +429,7 @@ export class World {
     if (this.overlapsPhase(next)) { this.emit('deny', { x: cx, y: cy }); return false; }
     this.phase = next;
     this.emit('swap', { x: cx, y: cy, phase: next });
+    if (this.twistImpl && this.twistImpl.swap) this.twistImpl.swap(this);
     return true;
   }
 
@@ -329,8 +438,8 @@ export class World {
     const cx = px + pw / 2, cy = py + ph / 2;
 
     for (const s of this.springs) {
-      if (p.vy >= 0 && overlap(px, py, pw, ph, s.tx * T + 4, s.ty * T + 18, T - 8, T - 18)) {
-        p.vy = -PHYS.SPRING;
+      if (p.vy * this.gs >= 0 && overlap(px, py, pw, ph, s.tx * T + 4, s.ty * T + 18, T - 8, T - 18)) {
+        p.vy = -this.gs * PHYS.SPRING;
         p.dashT = 0;
         p.canDash = true;
         p.onGround = false;
@@ -371,7 +480,7 @@ export class World {
     for (const c of this.checkpoints) {
       if (!c.active && Math.abs(c.x - cx) < 22 && py + ph > c.y - 56 && py + ph <= c.y + 2) {
         c.active = true;
-        this.spawn = { x: c.x - pw / 2, y: c.y - ph, phase: this.phase };
+        this.spawn = { x: c.x - pw / 2, y: this.gs < 0 ? c.y - T : c.y - ph, phase: this.phase };
         this.emit('checkpoint', { x: c.x, y: c.y });
       }
     }

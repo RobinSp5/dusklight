@@ -165,4 +165,195 @@ const run = (w, seconds, inp = idle) => { for (let t = 0; t < seconds - 1e-9; t 
   check('mirror level: standing and walking in the practice area is safe', pw.player.alive && pw.deaths === 0);
 }
 
+// ---------- phase flip twist (Hardcore 2) ----------
+{
+  const lv = build({ name: 't', w: 40, h: 10, seed: 1, twist: { id: 'invertedWithPhaseToggle' } }, ({ ground, put }) => { ground(0, 39, 8); put(4, 7, 'P'); });
+  const R = { ...idle, right: true }, L = { ...idle, left: true }, SW = { ...idle, swapPressed: true };
+  const x0 = new World(lv, 0).player.x;
+  const w = new World(lv, 0);
+  check('flip: starts inverted (right runs left)', w.tw.inv === 1);
+  run(w, 0.3, R);
+  check('flip: inverted at the start', w.player.x < x0 - 10);
+  w.update(STEP, SW);
+  check('flip: one switch turns the controls normal', w.phase === 1 && w.tw.inv === 0);
+  const x1 = w.player.x;
+  run(w, 0.3, R);
+  check('flip: normal in Frost (right runs right)', w.player.x > x1 + 10);
+  w.update(STEP, SW);
+  check('flip: two switches are inverted again', w.phase === 0 && w.tw.inv === 1);
+  const x2 = w.player.x;
+  run(w, 0.3, R);
+  check('flip: inverted again in Ember', w.player.x < x2 - 10);
+  // a denied switch (player inside a wall of the other world) does not flip
+  const lv2 = build({ name: 't', w: 20, h: 10, seed: 1, twist: { id: 'invertedWithPhaseToggle' } }, ({ ground, put }) => { ground(0, 19, 8); put(4, 7, 'P'); });
+  const d = new World(lv2, 0);
+  d.grid[7][4] = 'B';
+  d.update(STEP, SW);
+  check('flip: a denied switch does not flip the controls', d.phase === 0 && d.tw.inv === 1);
+  // clone is independent and the state is part of stateKey
+  const a = new World(lv, 0), b = a.clone();
+  b.update(STEP, SW);
+  check('flip: clone is independent, stateKey sees the flip', a.tw.inv === 1 && b.tw.inv === 0 && a.stateKey() !== b.stateKey());
+  const g = new World(lv, 0);
+  g.update(STEP, SW); g.update(STEP, SW);
+  check('flip: two switches give the same key as none', g.stateKey().endsWith('|t1') && new World(lv, 0).stateKey().endsWith('|t1'));
+}
+
+// ---------- twist: dash only (Hardcore 3) ----------
+{
+  const mk = (twist) => build({ name: 't', w: 60, h: 12, seed: 1, ...(twist ? { twist: { id: 'dashOnlyMovement' } } : {}) }, ({ ground, put }) => { ground(0, 59, 10); put(20, 9, 'P'); put(26, 9, 'd'); });
+  const dd = mk(true), plain = mk(false);
+  const R = { ...idle, right: true }, L = { ...idle, left: true };
+  const dx = (lv, inp, secs = 0.6) => { const w = new World(lv, 0), x = w.player.x; run(w, secs, inp); return w.player.x - x; };
+  check('dash only: walking does nothing', Math.abs(dx(dd, R)) < 1e-9 && Math.abs(dx(dd, L)) < 1e-9 && dx(plain, R) > 50);
+  const jw = new World(dd, 0);
+  run(jw, 0.2);
+  jw.update(STEP, { ...idle, jumpPressed: true, jumpHeld: true });
+  run(jw, 0.1, { ...idle, jumpHeld: true });
+  check('dash only: jump does nothing', jw.player.onGround && Math.abs(jw.player.vy) < 1e-6 && jw.player.y === new World(dd, 0).player.y);
+  const aim = (inp, secs = 0.3) => { const w = new World(dd, 0), x = w.player.x; w.update(STEP, { ...inp, dashPressed: true }); run(w, secs, inp); return { w, dx: w.player.x - x }; };
+  check('dash only: a dash goes the way it is aimed', aim(R).dx > 60 && aim(L).dx < -60);
+  const stay = new World(dd, 0);
+  stay.update(STEP, { ...R, dashPressed: true });
+  stay.player.canDash = false; stay.player.dashT = 0;
+  const vx0 = stay.player.vx;
+  run(stay, 0.5, R);
+  check('dash only: holding a direction after the dash does not walk on', Math.abs(stay.player.vx) <= Math.abs(vx0) && stay.player.vx === 0);
+  const nd = new World(dd, 0);
+  nd.update(STEP, { ...idle, dashPressed: true });
+  check('dash only: a dash without direction follows the facing', nd.player.dashDir === 1);
+  // dash orbs still work: in the air a dash through an orb refills the dash and the chain goes on
+  const ow = new World(dd, 0);
+  ow.player.x = 24 * T; ow.player.y = 9 * T + 3 - 10; ow.player.onGround = false; ow.player.vy = 0; ow.player.canDash = true;
+  ow.update(STEP, { ...R, dashPressed: true });
+  let refilled = false;
+  for (let t = 0; t < 0.3; t += STEP) { ow.update(STEP, R); if (ow.player.canDash) refilled = true; }
+  check('dash only: dash orbs still refill the dash', refilled && ow.orbs[0].cd > 0);
+  // the world switch still works
+  const sw = new World(dd, 0);
+  sw.update(STEP, { ...idle, swapPressed: true });
+  check('dash only: the world switch still works', sw.phase === 1);
+  // raw input stays untouched (ghosts and the solver replay raw input)
+  const raw = Object.freeze({ ...R, jumpPressed: true, dashPressed: true });
+  let threw = false;
+  try { new World(dd, 0).update(STEP, raw); } catch { threw = true; }
+  check('dash only: raw input is left alone', !threw);
+  // clone is independent
+  const a = new World(dd, 0), b = a.clone();
+  a.update(STEP, { ...R, dashPressed: true }); run(a, 0.3, R);
+  check('dash only: clone is independent and keeps the rule', b.player.x !== a.player.x && b.twistImpl === a.twistImpl && new World(dd, 0).stateKey() === new World(plain, 0).stateKey());
+}
+
+// ---------- the Dash Only level (Hardcore 3) ----------
+{
+  const lv = HARDCORE.find((l) => l.twist && l.twist.id === 'dashOnlyMovement');
+  check('dash level: carries the twist and a unique reward', !!lv && lv.reward && lv.reward.id === 'hc.trail.streak' && lv.reward.slot === 'trail');
+  check('dash level: the rule is on a sign in the first section', lv.signs.some((s) => s.x / T < 25 && /\{dash\}/.test(s.text) && /orbs/.test(s.text)));
+  const w = new World(lv, 0);
+  const sx = Math.floor(w.player.x / T);
+  const flat = lv.rows[Math.floor(w.player.y / T) + 1].slice(0, 25).split('').every((c) => c === '#');
+  check('dash level: a flat, harmless practice area of at least 20 tiles', sx >= 3 && flat);
+  const pw = new World(lv, 0);
+  run(pw, 10);
+  for (let t = 0; t < 4; t++) run(pw, 0.6, { ...idle, right: t % 2 === 0, left: t % 2 === 1, dashPressed: true });
+  check('dash level: standing and dashing in the practice area is safe', pw.player.alive && pw.deaths === 0);
+}
+
+// ---------- twist: inverted gravity (Hardcore 4) ----------
+{
+  // a stone slab hangs from the ceiling (rows 0-2): the floor of this world, the player stands under it
+  const mk = (twist) => build({ name: 't', w: 40, h: 14, seed: 1, ...(twist ? { twist: { id: 'invertedGravity' } } : {}) }, ({ fill, put, row }) => {
+    fill(0, 0, 39, 2, '#'); put(20, 3, 'P');
+    row(26, 29, 8, 'A'); row(30, 33, 8, 'B'); // slabs below the start: tops are the ceiling of this world
+  });
+  const inv = mk(true), plain = mk(false);
+  const R = { ...idle, right: true };
+  const w0 = new World(inv, 0);
+  check('inverted: the player starts hanging under the slab and is grounded', Math.abs(w0.player.y - 3 * T) < 1e-9 && w0.gs === -1);
+  run(w0, 2);
+  check('inverted: standing still stays put and alive', w0.player.alive && w0.player.onGround && Math.abs(w0.player.y - 3 * T) < 1e-9);
+  // gravity: in free fall (a pit in the slab) the player accelerates upward, not downward
+  const pit = build({ name: 't', w: 40, h: 14, seed: 1, twist: { id: 'invertedGravity' } }, ({ fill, put }) => { fill(0, 0, 39, 2, '#'); fill(18, 0, 22, 2, '.'); put(8, 3, 'P'); });
+  const fw = new World(pit, 0);
+  fw.player.x = 19 * T; fw.player.y = 5 * T; fw.player.onGround = false;
+  const y0 = fw.player.y; run(fw, 0.1);
+  check('inverted: free fall accelerates upward', fw.player.vy < -100 && fw.player.y < y0);
+  const lim = new World(pit, 0); lim.player.x = 19 * T; lim.player.y = 5 * T; lim.player.onGround = false; run(lim, 0.3);
+  check('inverted: terminal speed is the same as normal, upward', Math.abs(lim.player.vy) <= PHYS.FALL + 1e-9);
+  const out = new World(pit, 0); out.player.x = 19 * T; out.player.y = 5 * T; out.player.onGround = false; run(out, 1.5);
+  check('inverted: falling out of the top of the level is a death', out.deaths === 1);
+  // landing: the player rises into the underside of a slab and lands on it
+  const lw = new World(inv, 0);
+  lw.player.y = 6 * T; lw.player.onGround = false; lw.player.vy = 0; run(lw, 0.5);
+  check('inverted: lands against the bottom of the slab and is grounded', lw.player.onGround && Math.abs(lw.player.y - 3 * T) < 1e-9 && lw.player.vy === 0);
+  // jump pushes down, and the player comes back up
+  const jw = new World(inv, 0), jp = new World(plain, 0);
+  jw.update(STEP, { ...idle, jumpPressed: true, jumpHeld: true });
+  jp.update(STEP, { ...idle, jumpPressed: true, jumpHeld: true });
+  check('inverted: a jump pushes down with the normal strength', jw.player.vy > 0 && Math.abs(jw.player.vy + jp.player.vy) < 1e-9);
+  let peak = 0, back = false;
+  for (let t = 0; t < 2; t += STEP) { jw.update(STEP, { ...idle, jumpHeld: true }); peak = Math.max(peak, jw.player.y - 3 * T); if (peak > 40 && jw.player.onGround) { back = true; break; } }
+  check('inverted: the jump arcs down and returns to the ceiling', peak > 80 && peak < 140 && back);
+  // a tap is a short hop, as in the normal world
+  const tw = new World(inv, 0);
+  let tpeak = 0;
+  tw.update(STEP, { ...idle, jumpPressed: true, jumpHeld: true });
+  for (let t = 0; t < 1; t += STEP) { tw.update(STEP, idle); tpeak = Math.max(tpeak, tw.player.y - 3 * T); }
+  check('inverted: jump cut works (a tap is shorter than a held jump)', tpeak < peak - 20);
+  const wall = new World(inv, 0);
+  run(wall, 3, R);
+  check('inverted: running on the ceiling works, the level edge holds', wall.player.alive && wall.player.x + PHYS.W <= 40 * T + 1e-9 && wall.player.onGround);
+  // both worlds: Ember slabs (A) hold only in Ember, Frost slabs (B) only in Frost, the landing side is inverted for both
+  for (const [phase, c] of [[0, 'A'], [1, 'B']]) {
+    const w = new World(inv, 0);
+    w.phase = phase;
+    w.player.x = (c === 'A' ? 27 : 31) * T; w.player.y = 11 * T; w.player.onGround = false; w.player.vy = 0;
+    run(w, 0.45, idle);
+    check(`inverted: a ${c === 'A' ? 'Ember' : 'Frost'} slab is solid in its own world (rising into it from below stops under it)`, Math.abs(w.player.y - 9 * T) < 1e-9 && w.player.onGround);
+    const o = new World(inv, 0);
+    o.phase = 1 - phase;
+    o.player.x = (c === 'A' ? 27 : 31) * T; o.player.y = 11 * T; o.player.onGround = false; o.player.vy = 0;
+    run(o, 0.45, idle);
+    check(`inverted: a ${c === 'A' ? 'Ember' : 'Frost'} slab does not hold in the other world`, o.player.y < 9 * T - 1);
+  }
+  // a thorn hanging off the slab (v) kills a walker, a thorn on top of a slab (^) kills the player who is pushed down onto it
+  const th = build({ name: 't', w: 40, h: 14, seed: 1, twist: { id: 'invertedGravity' } }, ({ fill, put }) => { fill(0, 0, 39, 2, '#'); put(4, 3, 'P'); put(10, 3, 'v'); });
+  const tw2 = new World(th, 0); run(tw2, 2, R);
+  check('inverted: a thorn that hangs from the slab is a floor thorn and kills a walker', tw2.deaths === 1);
+  // dash, checkpoint, spawn
+  const cp = build({ name: 't', w: 40, h: 14, seed: 1, twist: { id: 'invertedGravity' } }, ({ fill, put }) => { fill(0, 0, 39, 2, '#'); put(4, 3, 'P'); put(10, 3, 'C'); put(14, 3, 'v'); });
+  const cw = new World(cp, 0);
+  for (let t = 0; t < 3 && cw.deaths === 0; t += STEP) cw.update(STEP, R);
+  check('inverted: a checkpoint is touched on the ceiling, then the thorn kills', cw.checkpoints[0].active && cw.deaths === 1);
+  run(cw, 1.2);
+  check('inverted: the respawn hangs from the slab again', cw.player.alive && cw.player.onGround && Math.abs(cw.player.y - 3 * T) < 1e-9);
+  const dw = new World(inv, 0); dw.update(STEP, { ...R, dashPressed: true }); run(dw, 0.1, R);
+  check('inverted: the dash is horizontal and does not fall', dw.player.vx > PHYS.RUN * 0.9 && Math.abs(dw.player.y - 3 * T) < 1e-9);
+  // determinism: clone with the same inputs gives the same result, inputs replay identically
+  const a = new World(inv, 0); run(a, 0.3, R);
+  const b = a.clone();
+  run(a, 0.5, { ...R, jumpHeld: true, jumpPressed: true }); run(b, 0.5, { ...R, jumpHeld: true, jumpPressed: true });
+  check('inverted: clone replays identically and keeps the gravity', a.player.y === b.player.y && a.stateKey() === b.stateKey() && b.gs === -1 && b.twistImpl === a.twistImpl);
+  check('inverted: a level without the twist keeps normal gravity', new World(plain, 0).gs === 1);
+  check('inverted: the twist changes the level hash (ghosts of other levels do not apply)', levelHash(inv) !== levelHash(plain));
+}
+
+// ---------- the Inverted Gravity level (Hardcore 4) ----------
+{
+  const lv = HARDCORE.find((l) => l.twist && l.twist.id === 'invertedGravity');
+  check('inverted level: carries the twist and a unique reward', !!lv && lv.reward && lv.reward.id === 'hc.hat.flipcrown' && lv.reward.slot === 'hat');
+  check('inverted level: the rule is on a sign in the first section', lv.signs.some((s) => s.x / T < 25 && /upward/.test(s.text) && /\{jump\}/.test(s.text)));
+  const w = new World(lv, 0);
+  const sx = Math.floor(w.player.x / T);
+  const sy = Math.round(w.player.y / T);
+  const flat = lv.rows[sy - 1].slice(0, 24).split('').every((c) => c === '#') && lv.rows[sy].slice(0, 24).split('').every((c) => c === '.' || c === 'P' || c === 'o' || c === 'C' || c === '#');
+  const danger = lv.rows.slice(0, 5).some((r) => /[v^ab]/.test(r.slice(0, 24)));
+  check('inverted level: a flat, harmless practice area of at least 20 tiles', sx >= 3 && flat && !danger);
+  const pw = new World(lv, 0);
+  run(pw, 10);
+  for (let t = 0; t < 4; t++) run(pw, 1.2, { ...idle, right: t % 2 === 0, left: t % 2 === 1 });
+  check('inverted level: standing and walking in the practice area is safe', pw.player.alive && pw.deaths === 0);
+  check('inverted level: no springs and no phase thorns (they cannot hang from the ceiling)', !lv.rows.some((r) => /[Sab=]/.test(r)));
+}
+
 process.exit(failed ? 1 : 0);

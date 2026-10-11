@@ -11,6 +11,8 @@ export const DEFAULT_BINDINGS = {
   mute: ['KeyM'],
 };
 const EDGE = ['jump', 'dash', 'swap'];
+// down key -> the up key it replaces; the up keys map to null
+const FLIP_UP = { ArrowDown: 'ArrowUp', KeyS: 'KeyW', ArrowUp: null, KeyW: null };
 const GAMEPLAY = new Set(['left', 'right', 'jump', 'dash', 'swap']);
 
 // Readable label for a KeyboardEvent.code
@@ -81,6 +83,7 @@ export class Input {
     this.onPadPause = null;
     this.onMenu = null; // gamepad navigation while menus are open
     this.capture = null; // set by the rebinding UI: receives the next key code
+    this.flipJump = false;
     this.setBindings(bindings || DEFAULT_BINDINGS);
 
     addEventListener('keydown', (e) => {
@@ -93,7 +96,7 @@ export class Input {
         cb(e.code);
         return;
       }
-      const a = this.keymap.get(e.code);
+      const a = this.act(e.code);
       if (!a || !GAMEPLAY.has(a)) return;
       if (this.enabled) e.preventDefault();
       if (!e.repeat && EDGE.includes(a) && !this.held(a)) this.pressed[a] = true;
@@ -112,6 +115,18 @@ export class Input {
 
   actionFor(code) { return this.keymap.get(code) || null; }
 
+  // Inverted gravity: the up jump keys (W, arrow up) stop jumping and the matching down keys (S, arrow down) jump instead.
+  act(code) {
+    if (this.flipJump) {
+      const up = FLIP_UP[code];
+      if (up !== undefined) {
+        if (up === null) return this.keymap.get(code) === 'jump' ? null : this.keymap.get(code) || null;
+        if (!this.keymap.get(code)) return 'jump';
+      }
+    }
+    return this.keymap.get(code) || null;
+  }
+
   reset() {
     this.codes.clear();
     for (const k in this.virtual) this.virtual[k] = false;
@@ -125,7 +140,7 @@ export class Input {
 
   held(a) {
     if (this.virtual[a] || this.pad[a]) return true;
-    for (const c of this.codes) if (this.keymap.get(c) === a) return true;
+    for (const c of this.codes) if (this.act(c) === a) return true;
     return false;
   }
 
