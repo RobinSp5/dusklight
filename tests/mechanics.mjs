@@ -356,4 +356,39 @@ const run = (w, seconds, inp = idle) => { for (let t = 0; t < seconds - 1e-9; t 
   check('inverted level: no springs and no phase thorns (they cannot hang from the ceiling)', !lv.rows.some((r) => /[Sab=]/.test(r)));
 }
 
+// ---------- twist: beat (Hardcore 5) ----------
+{
+  const lv = build({ name: 't', w: 30, h: 10, seed: 1, twist: { id: 'beat', every: 1 } }, ({ ground, put }) => { ground(0, 29, 8); put(4, 7, 'P'); });
+  const SW = { ...idle, swapPressed: true };
+  const w = new World(lv, 0);
+  run(w, 0.6);
+  check('beat: the timer runs', Math.abs(w.tw.t - 0.6) < 1e-6 && w.phase === 0);
+  w.update(STEP, SW);
+  check('beat: a manual switch flips the world and restarts the beat', w.phase === 1 && w.tw.t === 0);
+  run(w, 0.9);
+  check('beat: no automatic flip one beat minus 0.1 s after the manual switch', w.phase === 1);
+  run(w, 0.2);
+  check('beat: the automatic flip comes one full beat after the manual switch', w.phase === 0);
+  // a denied switch (player inside a block of the other world) does not restart the beat
+  const d = new World(lv, 0);
+  d.grid[7][4] = 'B';
+  run(d, 0.5);
+  const t0 = d.tw.t;
+  d.update(STEP, SW);
+  check('beat: a denied switch does not restart the beat', d.phase === 0 && d.tw.t > t0);
+  // respawn restarts the beat
+  const r = new World(lv, 0);
+  run(r, 0.3);
+  r.kill();
+  let respawned = false;
+  for (let t = 0; t < 1.5 && !respawned; t += STEP) { r.update(STEP, idle); respawned = r.events.some((e) => e.type === 'respawn'); r.events.length = 0; }
+  check('beat: respawn restarts the beat', respawned && r.player.alive && r.tw.t === 0);
+  // clone keeps the beat timer, stateKey sees the restart
+  const a = new World(lv, 0);
+  run(a, 0.5);
+  const b = a.clone();
+  b.update(STEP, SW);
+  check('beat: clone is independent, stateKey sees the restart', a.tw.t > 0.4 && b.tw.t === 0 && a.stateKey() !== b.stateKey());
+}
+
 process.exit(failed ? 1 : 0);

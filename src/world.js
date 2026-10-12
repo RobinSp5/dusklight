@@ -26,6 +26,7 @@ export const PHYS = {
 //   key(world)         extra string for stateKey(): everything in `world.tw` that changes what happens next
 //   clone(src, copy)   deep-copy `world.tw` into `copy.tw` (clone() shares nothing mutable)
 //   swap(world)        after a player world switch succeeded (not denied, not a pulse flip)
+//   respawn(world)     after the player respawned
 // Levels without a twist never touch this, so existing levels behave exactly as before.
 export const TWISTS = {};
 export function registerTwist(id, impl) { TWISTS[id] = impl; }
@@ -101,7 +102,7 @@ registerTwist('beat', {
   init: (w) => { w.tw = { t: 0 }; },
   clone: (src, copy) => { copy.tw = { ...src.tw }; },
   key: (w) => Math.floor(w.tw.t / 0.05),
-  swapped: (w) => { w.tw.t = 0; },
+  swap: (w) => { w.tw.t = 0; },
   warn: (w) => w.tw.t >= w.twist.every - 0.3,
   progress: (w) => Math.min(1, w.tw.t / w.twist.every),
   tick(w, dt) {
@@ -514,6 +515,7 @@ export class World {
   respawn() {
     if (!this.pulse) this.phase = this.spawn.phase; // in pulse levels the beat owns the world
     this.player = this.makePlayer();
+    if (this.twistImpl && this.twistImpl.respawn) this.twistImpl.respawn(this);
     this.emit('respawn', { x: this.spawn.x + PHYS.W / 2, y: this.spawn.y + PHYS.H / 2 });
   }
 }
